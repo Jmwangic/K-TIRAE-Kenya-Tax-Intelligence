@@ -8,19 +8,20 @@ The dashboard is designed to support operational review by highlighting unusual 
 
 ## 2. What the dashboard contains
 
-- Summary cards: headline metrics showing the overall status of the reviewed dataset.
+- Summary cards: headline metrics showing total taxpayers, flagged taxpayers, sales variance, and the overall status of the reviewed dataset.
 - Top risk items: the highest-priority anomalies ranked by severity and impact.
 - Executive summary: a compact view for stakeholder or management review.
 - Reconciliation findings table: detailed records showing mismatches between ETIMS and customs data.
 - Duplicate invoice table: repeated invoice numbers and associated buyer taxpayer details.
 - Timing gap table: invoice records that are unusually far apart in time.
 - Detail panel: a drill-down view for a selected record when additional investigation is needed.
+- Risk results and case review: explainable scores, reasons, review status, and reviewer comments for flagged taxpayers.
 - Filters: all, anomalies only, or matched only.
 - Print report: for presentation and meeting sharing.
 
 ## 3. How the dashboard works
 
-The dashboard reads data from PostgreSQL tables and reconciliation views created in the database layer.
+The dashboard reads data from PostgreSQL tables and views created in the database layer, including the brief-aligned tax-return, sales-mismatch, and risk-result views.
 
 The backend is a FastAPI application that exposes endpoints such as:
 
@@ -28,10 +29,13 @@ The backend is a FastAPI application that exposes endpoints such as:
 - /findings
 - /duplicate-invoices
 - /timing-gaps
+- /sales-mismatches
+- /risk-results
+- PATCH /case-reviews/{taxpayer_id}
 
 These endpoints return structured data that the front-end dashboard renders as cards, tables, and detail views.
 
-The risk score is calculated in the browser based on finding type and variance between ETIMS and customs values, so the most important anomalies rise to the top.
+The authoritative risk result is calculated in the database from the documented demonstration indicators: sales mismatch (40 points), duplicate invoice (30 points), and data-quality warning (10 points). The dashboard may continue to rank reconciliation findings for display, but it must show the persisted risk reason, review status, and reviewer comments when a risk-result view is used.
 
 Users can filter by all records, anomalies only, or matched records to narrow the review to relevant cases.
 

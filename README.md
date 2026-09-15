@@ -10,6 +10,8 @@ The repository includes a GitHub Actions workflow that creates or updates a prog
 
 The tracked project brief is [docs/K-TIRAE-project-brief.docx](docs/K-TIRAE-project-brief.docx). Its implementation notes and change procedure are in [docs/README.md](docs/README.md).
 
+The brief-aligned database extension is applied by [db/004_brief_compliance.sql](db/004_brief_compliance.sql). It adds tax returns, sales-mismatch findings, explainable risk results, data-quality indicators, and a human case-review record. The API exposes `/sales-mismatches`, `/risk-results`, and `PATCH /case-reviews/{taxpayer_id}` alongside the original reconciliation endpoints.
+
 <!-- K-TIRAE-PROGRESS:START -->
 ## Live Progress
 

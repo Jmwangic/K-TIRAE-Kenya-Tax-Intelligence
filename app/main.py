@@ -2,7 +2,7 @@ import os
 from typing import Any
 
 import psycopg
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from psycopg.rows import dict_row
 
@@ -560,12 +560,24 @@ def get_summary() -> dict[str, Any]:
             cur.execute("SELECT COUNT(*) AS total_timing_gaps FROM audit.invoice_timing_gaps")
             total_timing_gaps = cur.fetchone()["total_timing_gaps"]
 
+            cur.execute("SELECT COUNT(*) AS total_taxpayers FROM core.taxpayer")
+            total_taxpayers = cur.fetchone()["total_taxpayers"]
+
+            cur.execute("SELECT COUNT(*) AS flagged_taxpayers FROM audit.risk_results WHERE risk_score > 0")
+            flagged_taxpayers = cur.fetchone()["flagged_taxpayers"]
+
+            cur.execute("SELECT COALESCE(SUM(variance), 0) AS total_sales_variance FROM audit.sales_mismatches")
+            total_sales_variance = cur.fetchone()["total_sales_variance"]
+
     return {
         "total_findings": total_findings,
         "anomaly_findings": anomaly_findings,
         "matched_findings": matched_findings,
         "total_duplicates": total_duplicates,
         "total_timing_gaps": total_timing_gaps,
+        "total_taxpayers": total_taxpayers,
+        "flagged_taxpayers": flagged_taxpayers,
+        "total_sales_variance": total_sales_variance,
     }
 
 
@@ -603,3 +615,43 @@ def get_timing_gaps() -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(query)
             return cur.fetchall()
+
+
+    @app.get("/sales-mismatches")
+    def get_sales_mismatches() -> list[dict[str, Any]]:
+      query = "SELECT * FROM audit.sales_mismatches ORDER BY taxpayer_id, tax_period"
+      with get_connection() as conn:
+        with conn.cursor() as cur:
+          cur.execute(query)
+          return cur.fetchall()
+
+
+    @app.get("/risk-results")
+    def get_risk_results() -> list[dict[str, Any]]:
+      query = "SELECT * FROM audit.risk_results ORDER BY risk_score DESC, taxpayer_id"
+      with get_connection() as conn:
+        with conn.cursor() as cur:
+          cur.execute(query)
+          return cur.fetchall()
+
+
+    @app.patch("/case-reviews/{taxpayer_id}")
+    def update_case_review(taxpayer_id: int, payload: dict[str, str] = Body(...)) -> dict[str, Any]:
+      status = payload.get("review_status", "pending")
+      if status not in {"pending", "reviewed"}:
+        raise HTTPException(status_code=400, detail="review_status must be pending or reviewed")
+
+      comments = payload.get("reviewer_comments")
+      query = """
+        INSERT INTO audit.case_review (taxpayer_id, review_status, reviewer_comments)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (taxpayer_id) DO UPDATE SET
+          review_status = EXCLUDED.review_status,
+          reviewer_comments = EXCLUDED.reviewer_comments,
+          updated_at = now()
+        RETURNING case_id, taxpayer_id, review_status, reviewer_comments, updated_at
+      """
+      with get_connection() as conn:
+        with conn.cursor() as cur:
+          cur.execute(query, (taxpayer_id, status, comments))
+          return cur.fetchone()

@@ -36,8 +36,13 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to apply 002_reconciliation.sql' }
 & $psql -U $User -h localhost -d $DbName -f (Join-Path $root 'db\003_seed.sql')
 if ($LASTEXITCODE -ne 0) { throw 'Failed to apply 003_seed.sql' }
 
+& $psql -U $User -h localhost -d $DbName -f (Join-Path $root 'db\004_brief_compliance.sql')
+if ($LASTEXITCODE -ne 0) { throw 'Failed to apply 004_brief_compliance.sql' }
+
 Write-Host "Database $DbName is ready."
 Write-Host "Sample queries:"
 Write-Host "  SELECT * FROM audit.reconciliation_findings;"
 Write-Host "  SELECT * FROM audit.duplicate_invoice_numbers;"
 Write-Host "  SELECT * FROM audit.invoice_timing_gaps;"
+Write-Host "  SELECT * FROM audit.sales_mismatches;"
+Write-Host "  SELECT * FROM audit.risk_results;"
