@@ -1,6 +1,6 @@
 param(
     [int]$Port = 8001,
-    [string]$Host = '127.0.0.1'
+    [string]$BindHost = '127.0.0.1'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,4 +12,4 @@ if (-not (Test-Path $python)) {
 }
 
 $env:DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/kra_anomaly'
-& $python -m uvicorn app.main:app --host $Host --port $Port
+& $python -m uvicorn app.main:app --host $BindHost --port $Port

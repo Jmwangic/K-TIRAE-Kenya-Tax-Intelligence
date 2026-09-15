@@ -617,41 +617,42 @@ def get_timing_gaps() -> list[dict[str, Any]]:
             return cur.fetchall()
 
 
-    @app.get("/sales-mismatches")
-    def get_sales_mismatches() -> list[dict[str, Any]]:
-      query = "SELECT * FROM audit.sales_mismatches ORDER BY taxpayer_id, tax_period"
-      with get_connection() as conn:
+
+@app.get("/sales-mismatches")
+def get_sales_mismatches() -> list[dict[str, Any]]:
+    query = "SELECT * FROM audit.sales_mismatches ORDER BY taxpayer_id, tax_period"
+    with get_connection() as conn:
         with conn.cursor() as cur:
-          cur.execute(query)
-          return cur.fetchall()
+            cur.execute(query)
+            return cur.fetchall()
 
 
-    @app.get("/risk-results")
-    def get_risk_results() -> list[dict[str, Any]]:
-      query = "SELECT * FROM audit.risk_results ORDER BY risk_score DESC, taxpayer_id"
-      with get_connection() as conn:
+@app.get("/risk-results")
+def get_risk_results() -> list[dict[str, Any]]:
+    query = "SELECT * FROM audit.risk_results ORDER BY risk_score DESC, taxpayer_id"
+    with get_connection() as conn:
         with conn.cursor() as cur:
-          cur.execute(query)
-          return cur.fetchall()
+            cur.execute(query)
+            return cur.fetchall()
 
 
-    @app.patch("/case-reviews/{taxpayer_id}")
-    def update_case_review(taxpayer_id: int, payload: dict[str, str] = Body(...)) -> dict[str, Any]:
-      status = payload.get("review_status", "pending")
-      if status not in {"pending", "reviewed"}:
+@app.patch("/case-reviews/{taxpayer_id}")
+def update_case_review(taxpayer_id: int, payload: dict[str, str] = Body(...)) -> dict[str, Any]:
+    status = payload.get("review_status", "pending")
+    if status not in {"pending", "reviewed"}:
         raise HTTPException(status_code=400, detail="review_status must be pending or reviewed")
 
-      comments = payload.get("reviewer_comments")
-      query = """
+    comments = payload.get("reviewer_comments")
+    query = """
         INSERT INTO audit.case_review (taxpayer_id, review_status, reviewer_comments)
         VALUES (%s, %s, %s)
         ON CONFLICT (taxpayer_id) DO UPDATE SET
-          review_status = EXCLUDED.review_status,
-          reviewer_comments = EXCLUDED.reviewer_comments,
-          updated_at = now()
+            review_status = EXCLUDED.review_status,
+            reviewer_comments = EXCLUDED.reviewer_comments,
+            updated_at = now()
         RETURNING case_id, taxpayer_id, review_status, reviewer_comments, updated_at
-      """
-      with get_connection() as conn:
+    """
+    with get_connection() as conn:
         with conn.cursor() as cur:
-          cur.execute(query, (taxpayer_id, status, comments))
-          return cur.fetchone()
+            cur.execute(query, (taxpayer_id, status, comments))
+            return cur.fetchone()

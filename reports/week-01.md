@@ -5,7 +5,7 @@
 - Week: 1
 - Dates: 2026-09-15
 - Report owner: Project repository
-- Repository commit: pending
+- Repository commit: pending final test-fix commit
 
 ## Executive summary
 
@@ -27,7 +27,9 @@ The initial project brief was cross-checked against the repository. The existing
 - Python compilation: passed with `python -m py_compile app/main.py`.
 - Workspace diagnostics: no errors in edited files.
 - Migration/bootstrap wiring checks: passed.
-- PostgreSQL execution: pending because Docker Desktop/PostgreSQL was not running in the local environment.
+- PostgreSQL execution: passed against local PostgreSQL 17 after fixing bootstrap idempotency. Docker Desktop was not required.
+- API smoke tests: passed for `/health`, `/summary`, `/findings`, `/duplicate-invoices`, `/timing-gaps`, `/sales-mismatches`, and `/risk-results`.
+- Case-review persistence: passed for `PATCH /case-reviews/2`; status returned as `reviewed`.
 
 ## Two-hour checkpoints
 
@@ -39,7 +41,7 @@ The initial project brief was cross-checked against the repository. The existing
 ## Scope and risk review
 
 - Mandatory scope protected: sales mismatch, duplicate invoice detection, explainable scoring, synthetic data, and human review safeguards.
-- New risk: the database migration still requires a running PostgreSQL instance for runtime verification.
+- New risk: Docker Desktop is not running, so container-based verification remains pending even though local PostgreSQL verification passed.
 - Deferred work: dedicated taxpayer search UI, full staged CSV data-quality importer, authentication, and optional high-input-VAT rule.
 
 ## Next week

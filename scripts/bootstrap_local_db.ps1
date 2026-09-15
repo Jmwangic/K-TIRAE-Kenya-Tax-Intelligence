@@ -20,7 +20,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not connect to PostgreSQL. Ensure the server is running and the postgres password is correct."
 }
 
-if ($databaseList -notmatch [regex]::Escape($DbName)) {
+if ($databaseList -notcontains $DbName) {
     & $createdb -U $User -h localhost -w $DbName
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create database $DbName"
