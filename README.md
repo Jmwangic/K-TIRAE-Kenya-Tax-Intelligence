@@ -84,3 +84,14 @@ Invoke-WebRequest http://127.0.0.1:8001/duplicate-invoices
 ```
 
 The seed data is synthetic and must not be used for operational decisions. Real deployment will require access controls, data-provenance checks, human review, and documented false-positive handling.
+
+## Share a live demo
+
+The repository includes [render.yaml](render.yaml) and [Dockerfile](Dockerfile) for deploying a reviewable synthetic-data dashboard on Render.
+
+1. Create or sign in to a Render account.
+2. Choose **New > Blueprint** and connect `Jmwangic/K-TIRAE-Kenya-Tax-Intelligence`.
+3. Deploy the blueprint. It creates a web service and a PostgreSQL database, applies the four SQL files at startup, and exposes the dashboard at a public Render URL.
+4. Share the generated HTTPS URL with reviewers.
+
+The public demo must use synthetic data only. Do not add real taxpayer records, production credentials, or unrestricted production integrations. The free Render database/service may sleep or expire, so use this as an academic review environment rather than an operational deployment.
