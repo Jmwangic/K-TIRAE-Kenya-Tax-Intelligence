@@ -101,6 +101,8 @@ def dashboard_page() -> str:
           .alert { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
           .finding-label { display: inline-block; line-height: 1.4; }
           .muted { color: #64748b; }
+          .review-btn { border: 1px solid #bfd4ea; background: white; border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 700; color: var(--kra-blue-dark); cursor: pointer; }
+          .review-btn:hover { background: #eff6ff; }
           @media (max-width: 1100px) {
             .grid { grid-template-columns: 1fr; }
             .card { overflow-x: auto; }
@@ -111,7 +113,7 @@ def dashboard_page() -> str:
         <div class="page-shell">
           <div class="header-panel">
             <h1>KRA Tax Anomaly Dashboard</h1>
-            <div class="subtitle">Operational review of reconciliation, duplicate invoices, and invoice timing anomalies.</div>
+            <div class="subtitle">Operational review of reconciliation, risk results, duplicate invoices, and case decisions.</div>
           </div>
 
           <div id="summary" class="summary"></div>
@@ -174,6 +176,22 @@ def dashboard_page() -> str:
               </table>
             </div>
             <div class="card">
+              <h2>Risk results and case review</h2>
+              <table data-table-key="risk">
+                <thead>
+                  <tr>
+                    <th data-sort-key="taxpayer_id">Taxpayer</th>
+                    <th data-sort-key="risk_score">Score</th>
+                    <th data-sort-key="risk_level">Level</th>
+                    <th>Reason</th>
+                    <th data-sort-key="review_status">Review</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="risk-body"></tbody>
+              </table>
+            </div>
+            <div class="card">
               <h2>Duplicate invoice numbers</h2>
               <table data-table-key="duplicates">
                 <thead>
@@ -207,6 +225,7 @@ def dashboard_page() -> str:
         <script>
           const sortState = {
             findings: { key: 'risk_score', direction: 'desc' },
+            risk: { key: 'risk_score', direction: 'desc' },
             duplicates: { key: 'occurrence_count', direction: 'desc' },
             gaps: { key: 'days_since_previous_invoice', direction: 'desc' }
           };
@@ -317,6 +336,21 @@ def dashboard_page() -> str:
             const el = document.getElementById('summary');
             el.innerHTML = `
               <div class="metric">
+                <span class="metric-label">Taxpayers analysed</span>
+                <span class="metric-value">${summary.total_taxpayers}</span>
+                <span class="metric-note">Synthetic review population</span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Flagged taxpayers</span>
+                <span class="metric-value">${summary.flagged_taxpayers}</span>
+                <span class="metric-note">Require prioritisation</span>
+              </div>
+              <div class="metric">
+                <span class="metric-label">Sales variance</span>
+                <span class="metric-value">${formatMoney(summary.total_sales_variance)}</span>
+                <span class="metric-note">Recorded versus declared</span>
+              </div>
+              <div class="metric">
                 <span class="metric-label">Total findings</span>
                 <span class="metric-value">${summary.total_findings}</span>
                 <span class="metric-note">${summary.anomaly_findings} operational issues</span>
@@ -337,6 +371,58 @@ def dashboard_page() -> str:
                 <span class="metric-note">More than 30 days apart</span>
               </div>
             `;
+          }
+
+          function riskClass(level) {
+            if (level === 'high') return 'alert';
+            if (level === 'medium') return 'warning';
+            return 'matched';
+          }
+
+          function renderRiskResults(rows, key = sortState.risk.key, direction = sortState.risk.direction) {
+            const tbody = document.getElementById('risk-body');
+            if (!tbody) return;
+
+            const sorted = sortRows(rows, key, direction);
+            tbody.innerHTML = sorted.length ? sorted.map((row) => `
+              <tr>
+                <td>${row.taxpayer_id}</td>
+                <td><span class="risk-pill ${riskClass(row.risk_level)}">${row.risk_score}/100</span></td>
+                <td class="status ${riskClass(row.risk_level)}">${row.risk_level}</td>
+                <td>${row.reason}</td>
+                <td>${row.review_status}</td>
+                <td><button class="review-btn" data-taxpayer-id="${row.taxpayer_id}" data-status="${row.review_status}">${row.review_status === 'reviewed' ? 'Reopen' : 'Mark reviewed'}</button></td>
+              </tr>
+            `).join('') : '<tr><td colspan="6">No risk results</td></tr>';
+
+            tbody.querySelectorAll('.review-btn').forEach((button) => {
+              button.addEventListener('click', async () => {
+                const taxpayerId = button.dataset.taxpayerId;
+                const reviewed = button.dataset.status !== 'reviewed';
+                const comments = window.prompt('Reviewer comments', '')
+                  ?? '';
+                const response = await fetch(`/case-reviews/${taxpayerId}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    review_status: reviewed ? 'reviewed' : 'pending',
+                    reviewer_comments: comments
+                  })
+                });
+                if (!response.ok) {
+                  window.alert('The case review could not be saved.');
+                  return;
+                }
+                loadRiskResults();
+              });
+            });
+          }
+
+          async function loadRiskResults() {
+            const response = await fetch('/risk-results');
+            const rows = await response.json();
+            renderRiskResults(rows);
+            attachSortHandlers('risk', rows, renderRiskResults);
           }
 
           function sortRows(rows, key, direction) {
@@ -535,6 +621,7 @@ def dashboard_page() -> str:
 
           renderGenericTable('duplicates', '/duplicate-invoices', formatDuplicate, 3);
           renderGenericTable('gaps', '/timing-gaps', formatGap, 5);
+          loadRiskResults();
         </script>
       </body>
     </html>
