@@ -8,6 +8,16 @@ The five-week K-TIRAE delivery plan, acceptance criteria, risks, and two-hour ch
 
 The repository includes a GitHub Actions workflow that creates or updates a progress-checkpoint issue every two hours. GitHub Actions schedules run in UTC and are reminders; the team still needs to record the actual evidence in the weekly report.
 
+<!-- K-TIRAE-PROGRESS:START -->
+## Live Progress
+
+- Last automated checkpoint: Pending
+- Current delivery phase: Week 1 - requirements, architecture, and data contract
+- Detailed evidence: [weekly reports](reports/)
+
+The GitHub Actions checkpoint workflow updates this section every two hours in UTC.
+<!-- K-TIRAE-PROGRESS:END -->
+
 ## Scope
 
 This starter slice includes:
