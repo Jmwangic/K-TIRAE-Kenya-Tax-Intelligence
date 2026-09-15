@@ -103,6 +103,16 @@ def dashboard_page() -> str:
           .muted { color: #64748b; }
           .review-btn { border: 1px solid #bfd4ea; background: white; border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 700; color: var(--kra-blue-dark); cursor: pointer; }
           .review-btn:hover { background: #eff6ff; }
+          .risk-table { min-width: 820px; table-layout: fixed; }
+          .risk-table th { white-space: nowrap; }
+          .risk-table th:nth-child(1) { width: 9%; }
+          .risk-table th:nth-child(2) { width: 12%; }
+          .risk-table th:nth-child(3) { width: 14%; }
+          .risk-table th:nth-child(4) { width: 38%; }
+          .risk-table th:nth-child(5) { width: 12%; }
+          .risk-table th:nth-child(6) { width: 15%; }
+          .risk-table td:nth-child(4) { min-width: 280px; }
+          .risk-table .status, .risk-table .risk-pill, .risk-table .review-btn { white-space: nowrap; }
           @media (max-width: 1100px) {
             .grid { grid-template-columns: 1fr; }
             .card { overflow-x: auto; }
@@ -177,7 +187,7 @@ def dashboard_page() -> str:
             </div>
             <div class="card">
               <h2>Risk results and case review</h2>
-              <table data-table-key="risk">
+              <table class="risk-table" data-table-key="risk">
                 <thead>
                   <tr>
                     <th data-sort-key="taxpayer_id">Taxpayer</th>
