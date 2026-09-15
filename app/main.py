@@ -82,6 +82,7 @@ def dashboard_page() -> str:
           .detail-value { display: block; margin-top: 6px; font-size: 18px; font-weight: 700; }
           .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; }
           .card { background: white; border-radius: 18px; padding: 18px 18px 12px; box-shadow: 0 10px 24px rgba(15, 76, 129, 0.08); overflow: visible; }
+          .card.full-width { grid-column: 1 / -1; }
           .card h2 { margin: 0 0 8px; font-size: 20px; color: var(--kra-blue-dark); }
           .executive-panel { display: none; background: linear-gradient(180deg, #fefdf7 0%, #fffaf0 100%); border: 1px solid #f2d57d; border-radius: 18px; padding: 20px; margin: 0 0 20px; box-shadow: 0 8px 20px rgba(245, 183, 0, 0.08); }
           .executive-mode .executive-panel { display: block; }
@@ -168,7 +169,7 @@ def dashboard_page() -> str:
           </div>
 
           <div class="grid">
-            <div class="card">
+            <div class="card full-width">
               <h2>Reconciliation findings</h2>
               <table data-table-key="findings">
                 <thead>
@@ -185,7 +186,7 @@ def dashboard_page() -> str:
                 <tbody id="findings-body"></tbody>
               </table>
             </div>
-            <div class="card">
+            <div class="card full-width">
               <h2>Risk results and case review</h2>
               <table class="risk-table" data-table-key="risk">
                 <thead>
