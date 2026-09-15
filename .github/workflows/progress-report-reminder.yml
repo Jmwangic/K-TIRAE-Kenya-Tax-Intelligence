@@ -1,0 +1,71 @@
+name: Progress report reminder
+
+on:
+  schedule:
+    # GitHub Actions schedules use UTC. This creates a two-hour reminder cadence.
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update checkpoint issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'K-TIRAE two-hour progress checkpoint';
+            const body = [
+              'Record the current checkpoint in the active weekly report.',
+              '',
+              '- Work completed since the previous checkpoint:',
+              '- Evidence (commit, test, screenshot, or decision):',
+              '- Blocker or assumption:',
+              '- Next two-hour action:',
+              '',
+              `UTC checkpoint: ${new Date().toISOString()}`
+            ].join('\n');
+
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'progress-checkpoint'
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'progress-checkpoint',
+                color: '1D76DB',
+                description: 'Two-hour K-TIRAE delivery checkpoint'
+              });
+            }
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'progress-checkpoint'
+            });
+
+            if (openIssues.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['progress-checkpoint']
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: openIssues[0].number,
+                body
+              });
+            }
