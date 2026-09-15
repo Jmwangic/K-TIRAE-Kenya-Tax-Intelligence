@@ -11,8 +11,9 @@ The repository includes a GitHub Actions workflow that creates or updates a prog
 <!-- K-TIRAE-PROGRESS:START -->
 ## Live Progress
 
-- Last automated checkpoint: Pending
+- Last automated checkpoint: 2026-09-15T15:12:34.991Z UTC
 - Current delivery phase: Week 1 - requirements, architecture, and data contract
+- Checkpoint workflow: [view run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/34986859517)
 - Detailed evidence: [weekly reports](reports/)
 
 The GitHub Actions checkpoint workflow updates this section every two hours in UTC.
