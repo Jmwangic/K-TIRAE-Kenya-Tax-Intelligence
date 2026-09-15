@@ -13,11 +13,11 @@ The tracked project brief is [docs/K-TIRAE-project-brief.docx](docs/K-TIRAE-proj
 <!-- K-TIRAE-PROGRESS:START -->
 ## Live Progress
 
-- Last automated checkpoint: 2026-09-15T15:16:38.028Z UTC
+- Last automated checkpoint: 2026-09-15T15:18:41.138Z UTC
 - Current delivery phase: Week 1 - requirements, architecture, and data contract
 - Tracked brief SHA-256: `738c2627befc4439de2f8a4dbbb5ee5b4bcd2615915c50dc186570318f970ed3`
 - Document review status: source tracked; requirement changes require human review
-- Checkpoint workflow: [view run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/34987329785)
+- Checkpoint workflow: [view run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/34987565103)
 - Detailed evidence: [weekly reports](reports/)
 
 The GitHub Actions checkpoint workflow updates this section every two hours in UTC.
