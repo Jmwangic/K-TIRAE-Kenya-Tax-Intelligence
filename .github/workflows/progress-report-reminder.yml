@@ -80,6 +80,16 @@ jobs:
             });
             const currentReadme = Buffer.from(readme.content, 'base64').toString('utf8');
             const checkpointTime = new Date().toISOString();
+            const sourceDocument = await github.rest.repos.getContent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: 'docs/K-TIRAE-project-brief.docx',
+              ref: context.ref.replace('refs/heads/', '')
+            });
+            const sourceHash = require('crypto')
+              .createHash('sha256')
+              .update(Buffer.from(sourceDocument.data.content, 'base64'))
+              .digest('hex');
             const workflowUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const progressBlock = [
               '<!-- K-TIRAE-PROGRESS:START -->',
@@ -87,6 +97,8 @@ jobs:
               '',
               `- Last automated checkpoint: ${checkpointTime} UTC`,
               '- Current delivery phase: Week 1 - requirements, architecture, and data contract',
+              `- Tracked brief SHA-256: \`${sourceHash}\``,
+              '- Document review status: source tracked; requirement changes require human review',
               `- Checkpoint workflow: [view run](${workflowUrl})`,
               '- Detailed evidence: [weekly reports](reports/)',
               '',

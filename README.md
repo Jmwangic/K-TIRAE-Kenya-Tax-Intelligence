@@ -8,6 +8,8 @@ The five-week K-TIRAE delivery plan, acceptance criteria, risks, and two-hour ch
 
 The repository includes a GitHub Actions workflow that creates or updates a progress-checkpoint issue every two hours. GitHub Actions schedules run in UTC and are reminders; the team still needs to record the actual evidence in the weekly report.
 
+The tracked project brief is [docs/K-TIRAE-project-brief.docx](docs/K-TIRAE-project-brief.docx). Its implementation notes and change procedure are in [docs/README.md](docs/README.md).
+
 <!-- K-TIRAE-PROGRESS:START -->
 ## Live Progress
 
