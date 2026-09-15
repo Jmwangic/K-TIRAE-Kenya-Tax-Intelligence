@@ -10,7 +10,7 @@
 | Explainable 0-100 risk score | `audit.risk_results` with points and reasons | Complete |
 | Data-quality indicators | `audit.data_quality_findings` | Prototype coverage |
 | Dashboard summary metrics | `/summary` includes taxpayers, flagged taxpayers, and sales variance | Complete |
-| Taxpayer search | Existing detail views plus risk-result API; dedicated search UI remains Week 4 work | In progress |
+| Taxpayer search | `/taxpayers/search` and dashboard search table show PIN, business, sales, variance, risk, and review status | Complete |
 | Case review status/comments | `audit.case_review` and `PATCH /case-reviews/{taxpayer_id}` | Prototype coverage |
 | Synthetic/anonymised data safeguards | Seed data and source governance documentation | Complete |
 | Production KRA integration | Explicitly excluded | Not in scope |

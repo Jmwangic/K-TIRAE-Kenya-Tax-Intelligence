@@ -26,6 +26,7 @@ The dashboard reads data from PostgreSQL tables and views created in the databas
 The backend is a FastAPI application that exposes endpoints such as:
 
 - /summary
+- /taxpayers/search
 - /findings
 - /duplicate-invoices
 - /timing-gaps

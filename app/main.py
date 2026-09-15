@@ -104,6 +104,12 @@ def dashboard_page() -> str:
           .muted { color: #64748b; }
           .review-btn { border: 1px solid #bfd4ea; background: white; border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 700; color: var(--kra-blue-dark); cursor: pointer; }
           .review-btn:hover { background: #eff6ff; }
+          .search-panel { margin: 0 0 22px; background: white; border-radius: 18px; padding: 18px 20px; box-shadow: 0 8px 20px rgba(15, 76, 129, 0.08); border: 1px solid #dfeaf5; }
+          .search-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+          .search-input { flex: 1 1 320px; min-width: 220px; border: 1px solid #bfd4ea; border-radius: 8px; padding: 10px 12px; color: var(--kra-text); font-size: 14px; }
+          .search-input:focus { outline: 3px solid rgba(15, 76, 129, 0.14); border-color: var(--kra-blue); }
+          .search-results { overflow-x: auto; margin-top: 14px; }
+          .search-results table { min-width: 820px; }
           .risk-table { min-width: 820px; table-layout: fixed; }
           .risk-table th { white-space: nowrap; }
           .risk-table th:nth-child(1) { width: 9%; }
@@ -128,6 +134,18 @@ def dashboard_page() -> str:
           </div>
 
           <div id="summary" class="summary"></div>
+
+          <div class="search-panel">
+            <div class="priority-header">
+              <div class="priority-title">Taxpayer search</div>
+              <div class="muted">Review sales, risk, and case status together</div>
+            </div>
+            <form id="taxpayer-search-form" class="search-form">
+              <input id="taxpayer-search-input" class="search-input" type="search" placeholder="Search by PIN or business name" aria-label="Search by PIN or business name">
+              <button class="action-btn" type="submit">Search</button>
+            </form>
+            <div id="taxpayer-search-results" class="search-results" hidden></div>
+          </div>
 
           <div id="priority-panel" class="priority-panel">
             <div class="priority-header">
@@ -257,6 +275,45 @@ def dashboard_page() -> str:
           function formatMoney(value) {
             const num = Number(value || 0);
             return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+
+          function renderTaxpayerSearch(rows) {
+            const container = document.getElementById('taxpayer-search-results');
+            container.hidden = false;
+            if (!rows.length) {
+              container.innerHTML = '<div class="muted">No taxpayers matched that search.</div>';
+              return;
+            }
+
+            container.innerHTML = `
+              <table>
+                <thead><tr><th>PIN</th><th>Business</th><th>Recorded sales</th><th>Declared sales</th><th>Variance</th><th>Risk</th><th>Review</th></tr></thead>
+                <tbody>${rows.map((row) => `
+                  <tr>
+                    <td>${row.kra_pin}</td>
+                    <td>${row.legal_name}</td>
+                    <td>${formatMoney(row.recorded_sales)}</td>
+                    <td>${formatMoney(row.declared_sales)}</td>
+                    <td>${formatMoney(row.sales_variance)}</td>
+                    <td><span class="risk-pill ${riskClass(row.risk_level)}">${row.risk_score}/100</span></td>
+                    <td>${row.review_status}</td>
+                  </tr>
+                `).join('')}</tbody>
+              </table>
+            `;
+          }
+
+          function bindTaxpayerSearch() {
+            document.getElementById('taxpayer-search-form').addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const query = document.getElementById('taxpayer-search-input').value.trim();
+              const response = await fetch(`/taxpayers/search?q=${encodeURIComponent(query)}`);
+              if (!response.ok) {
+                renderTaxpayerSearch([]);
+                return;
+              }
+              renderTaxpayerSearch(await response.json());
+            });
           }
 
           function renderPriorityList(rows) {
@@ -612,6 +669,7 @@ def dashboard_page() -> str:
 
           loadSummary();
           bindFilterButtons();
+          bindTaxpayerSearch();
 
           const pageShell = document.querySelector('.page-shell');
           document.getElementById('print-report').addEventListener('click', () => window.print());
@@ -697,6 +755,45 @@ def get_findings() -> list[dict[str, Any]]:
             return cur.fetchall()
 
 
+@app.get("/taxpayers/search")
+def search_taxpayers(q: str = "") -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            t.taxpayer_id,
+            t.kra_pin,
+            t.legal_name,
+            COALESCE(s.recorded_sales, 0) AS recorded_sales,
+            COALESCE(s.declared_sales, 0) AS declared_sales,
+            COALESCE(s.sales_variance, 0) AS sales_variance,
+            COALESCE(r.risk_score, 0) AS risk_score,
+            COALESCE(r.risk_level, 'low') AS risk_level,
+            COALESCE(r.review_status, 'pending') AS review_status,
+            COALESCE(r.reason, 'No compliance indicator triggered') AS reason
+        FROM core.taxpayer t
+        LEFT JOIN (
+            SELECT
+                i.seller_taxpayer_id AS taxpayer_id,
+                SUM(i.taxable_amount) AS recorded_sales,
+                SUM(r.declared_sales) AS declared_sales,
+                SUM(i.taxable_amount) - SUM(r.declared_sales) AS sales_variance
+            FROM source.etims_invoice i
+            JOIN source.tax_return r
+              ON r.taxpayer_id = i.seller_taxpayer_id
+             AND r.tax_period = DATE_TRUNC('month', i.invoice_date)::DATE
+            GROUP BY i.seller_taxpayer_id
+        ) s ON s.taxpayer_id = t.taxpayer_id
+        LEFT JOIN audit.risk_results r ON r.taxpayer_id = t.taxpayer_id
+        WHERE (%s = '' OR t.kra_pin ILIKE %s OR t.legal_name ILIKE %s)
+        ORDER BY COALESCE(r.risk_score, 0) DESC, t.legal_name
+        LIMIT 25
+    """
+    pattern = f"%{q}%"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (q, pattern, pattern))
+            return cur.fetchall()
+
+
 @app.get("/duplicate-invoices")
 def get_duplicate_invoices() -> list[dict[str, Any]]:
     query = "SELECT * FROM audit.duplicate_invoice_numbers ORDER BY invoice_number"
@@ -713,8 +810,6 @@ def get_timing_gaps() -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(query)
             return cur.fetchall()
-
-
 
 @app.get("/sales-mismatches")
 def get_sales_mismatches() -> list[dict[str, Any]]:
