@@ -12,6 +12,8 @@
 | Dashboard summary metrics | `/summary` includes taxpayers, flagged taxpayers, and sales variance | Complete |
 | Taxpayer search | `/taxpayers/search` and dashboard search table show PIN, business, sales, variance, risk, and review status | Complete |
 | Case review status/comments | `audit.case_review` and `PATCH /case-reviews/{taxpayer_id}` | Prototype coverage |
+| Named administrator sign-in | `core.administrator`, signed HTTP-only session cookie, one-time token-gated first-admin setup | Implemented for application access |
+| Administrator change history | `audit.admin_change_log` captures actor and before/after case-review values; database trigger rejects update/delete/truncate | Implemented for changes through the application; privileged direct database edits remain outside attribution |
 | Synthetic/anonymised data safeguards | Seed data and source governance documentation | Complete |
 | Production KRA integration | Explicitly excluded | Not in scope |
 

@@ -1,8 +1,14 @@
+import base64
+import hashlib
+import hmac
+import json
 import os
+import secrets
+import time
 from typing import Any
 
 import psycopg
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from psycopg.rows import dict_row
 
@@ -12,10 +18,221 @@ DATABASE_URL = os.environ.get(
 )
 
 app = FastAPI(title="KRA Tax Anomaly API", version="0.1.0")
+SESSION_COOKIE = "admin_session"
+SESSION_MAX_AGE = 8 * 60 * 60
+PASSWORD_ITERATIONS = 310_000
 
 
 def get_connection():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def hash_password(password: str) -> str:
+  salt = secrets.token_bytes(16)
+  digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PASSWORD_ITERATIONS)
+  return f"{PASSWORD_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+  try:
+    iterations_text, salt_hex, expected_hex = stored_hash.split("$", 2)
+    iterations = int(iterations_text)
+    if iterations < 100_000 or iterations > 2_000_000:
+      return False
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), iterations)
+    return hmac.compare_digest(actual.hex(), expected_hex)
+  except (ValueError, TypeError):
+    return False
+
+
+def encode_session(username: str) -> str:
+  secret = os.environ.get("ADMIN_SESSION_SECRET", "").encode()
+  if len(secret) < 32:
+    raise HTTPException(status_code=503, detail="Administrator sessions are not configured")
+  payload = json.dumps({"username": username, "exp": int(time.time()) + SESSION_MAX_AGE}).encode()
+  encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
+  signature = hmac.new(secret, encoded, hashlib.sha256).digest()
+  return f"{encoded.decode()}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def decode_session(token: str) -> str | None:
+  secret = os.environ.get("ADMIN_SESSION_SECRET", "").encode()
+  if len(secret) < 32:
+    return None
+  try:
+    payload_part, signature_part = token.split(".", 1)
+    signature = base64.urlsafe_b64decode(signature_part + "=" * (-len(signature_part) % 4))
+    expected = hmac.new(secret, payload_part.encode(), hashlib.sha256).digest()
+    if not hmac.compare_digest(signature, expected):
+      return None
+    payload = base64.urlsafe_b64decode(payload_part + "=" * (-len(payload_part) % 4))
+    session = json.loads(payload)
+    if session["exp"] <= time.time() or not isinstance(session["username"], str):
+      return None
+    return session["username"]
+  except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+    return None
+
+
+def set_session_cookie(response: Response, username: str) -> None:
+  response.set_cookie(
+    SESSION_COOKIE,
+    encode_session(username),
+    max_age=SESSION_MAX_AGE,
+    httponly=True,
+    secure=os.environ.get("ADMIN_COOKIE_SECURE", "false").lower() == "true",
+    samesite="strict",
+    path="/",
+  )
+
+
+def current_admin(request: Request) -> dict[str, Any]:
+  token = request.cookies.get(SESSION_COOKIE, "")
+  username = decode_session(token)
+  if username is None:
+    raise HTTPException(status_code=401, detail="Administrator sign-in required")
+  with get_connection() as conn:
+    with conn.cursor() as cur:
+      cur.execute(
+        "SELECT administrator_id, username FROM core.administrator WHERE username = %s AND enabled",
+        (username,),
+      )
+      admin = cur.fetchone()
+  if admin is None:
+    raise HTTPException(status_code=401, detail="Administrator account is disabled or unavailable")
+  return admin
+
+
+def validate_admin_credentials(username: str, password: str) -> None:
+  if not username or len(username) > 80:
+    raise HTTPException(status_code=400, detail="Username must be between 1 and 80 characters")
+  if len(password) < 12 or len(password) > 1024:
+    raise HTTPException(status_code=400, detail="Password must be between 12 and 1024 characters")
+
+
+@app.get("/admin/session")
+def admin_session(request: Request) -> dict[str, Any]:
+  token = request.cookies.get(SESSION_COOKIE, "")
+  username = decode_session(token) if token else None
+  if username:
+    with get_connection() as conn:
+      with conn.cursor() as cur:
+        cur.execute(
+          "SELECT administrator_id, username FROM core.administrator WHERE username = %s AND enabled",
+          (username,),
+        )
+        admin = cur.fetchone()
+    if admin:
+      return {"administrator": admin, "setup_required": False}
+  with get_connection() as conn:
+    with conn.cursor() as cur:
+      cur.execute("SELECT EXISTS (SELECT 1 FROM core.administrator WHERE enabled) AS has_admin")
+      has_admin = cur.fetchone()["has_admin"]
+  return {"administrator": None, "setup_required": not has_admin}
+
+
+@app.post("/admin/setup", status_code=201)
+def setup_first_admin(payload: dict[str, str] = Body(...)) -> dict[str, str]:
+  configured_token = os.environ.get("ADMIN_SETUP_TOKEN", "")
+  if len(configured_token) < 32:
+    raise HTTPException(status_code=503, detail="First-administrator setup is not configured")
+  if not hmac.compare_digest(payload.get("setup_token", ""), configured_token):
+    raise HTTPException(status_code=401, detail="Invalid setup token")
+  username = payload.get("username", "").strip()
+  password = payload.get("password", "")
+  validate_admin_credentials(username, password)
+  password_hash = hash_password(password)
+  with get_connection() as conn:
+    with conn.cursor() as cur:
+      cur.execute("LOCK TABLE core.administrator IN EXCLUSIVE MODE")
+      cur.execute("SELECT EXISTS (SELECT 1 FROM core.administrator) AS has_admin")
+      if cur.fetchone()["has_admin"]:
+        raise HTTPException(status_code=409, detail="Administrator setup has already been completed")
+      cur.execute(
+        "INSERT INTO core.administrator (username, password_hash) VALUES (%s, %s) RETURNING administrator_id",
+        (username, password_hash),
+      )
+      administrator_id = cur.fetchone()["administrator_id"]
+      cur.execute(
+        """INSERT INTO audit.admin_change_log
+           (administrator_id, action, entity_type, entity_id, new_values)
+           VALUES (%s, 'administrator.bootstrap', 'administrator', %s, %s::jsonb)""",
+        (administrator_id, username, json.dumps({"username": username})),
+      )
+  return {"username": username, "message": "Administrator created; sign in to continue"}
+
+
+@app.post("/admin/login")
+def admin_login(payload: dict[str, str] = Body(...), response: Response = None) -> dict[str, str]:
+  username = payload.get("username", "").strip()
+  password = payload.get("password", "")
+  with get_connection() as conn:
+    with conn.cursor() as cur:
+      cur.execute(
+        "SELECT password_hash FROM core.administrator WHERE username = %s AND enabled",
+        (username,),
+      )
+      row = cur.fetchone()
+  if row is None or not verify_password(password, row["password_hash"]):
+    raise HTTPException(status_code=401, detail="Invalid username or password")
+  if response is None:
+    raise HTTPException(status_code=500, detail="Could not create administrator session")
+  set_session_cookie(response, username)
+  return {"username": username}
+
+
+@app.post("/admin/logout")
+def admin_logout(response: Response) -> dict[str, str]:
+  response.delete_cookie(
+    SESSION_COOKIE,
+    path="/",
+    secure=os.environ.get("ADMIN_COOKIE_SECURE", "false").lower() == "true",
+    httponly=True,
+    samesite="strict",
+  )
+  return {"message": "Signed out"}
+
+
+@app.post("/admin/administrators", status_code=201)
+def create_admin(
+  payload: dict[str, str] = Body(...),
+  admin: dict[str, Any] = Depends(current_admin),
+) -> dict[str, str]:
+  username = payload.get("username", "").strip()
+  password = payload.get("password", "")
+  validate_admin_credentials(username, password)
+  with get_connection() as conn:
+    with conn.cursor() as cur:
+      cur.execute(
+        "INSERT INTO core.administrator (username, password_hash) VALUES (%s, %s) RETURNING administrator_id",
+        (username, hash_password(password)),
+      )
+      created = cur.fetchone()
+      cur.execute(
+        """INSERT INTO audit.admin_change_log
+           (administrator_id, action, entity_type, entity_id, new_values)
+           VALUES (%s, 'administrator.created', 'administrator', %s, %s::jsonb)""",
+        (admin["administrator_id"], username, json.dumps({"username": username})),
+      )
+  return {"username": username, "administrator_id": str(created["administrator_id"])}
+
+
+@app.get("/admin/audit-log")
+def get_admin_audit_log(
+  admin: dict[str, Any] = Depends(current_admin), limit: int = 100
+) -> list[dict[str, Any]]:
+  bounded_limit = max(1, min(limit, 500))
+  with get_connection() as conn:
+    with conn.cursor() as cur:
+      cur.execute(
+        """SELECT l.log_id, a.username, l.action, l.entity_type, l.entity_id,
+              l.old_values, l.new_values, l.changed_at
+           FROM audit.admin_change_log l
+           JOIN core.administrator a ON a.administrator_id = l.administrator_id
+           ORDER BY l.changed_at DESC, l.log_id DESC LIMIT %s""",
+        (bounded_limit,),
+      )
+      return cur.fetchall()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -43,6 +260,13 @@ def dashboard_page() -> str:
           body { font-family: Arial, sans-serif; margin: 0; background: linear-gradient(180deg, var(--kra-bg) 0%, #f7fafc 100%); color: var(--kra-text); }
           .page-shell { max-width: 1500px; margin: 0 auto; padding: 28px 22px 40px; }
           .header-panel { background: linear-gradient(135deg, var(--kra-blue-dark) 0%, var(--kra-blue) 55%, var(--kra-gold) 160%); color: white; border-radius: 18px; padding: 28px 30px; margin-bottom: 22px; box-shadow: 0 16px 28px rgba(15, 76, 129, 0.22); }
+          .admin-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; margin: -12px 0 16px; border-bottom: 1px solid #d7e3ed; }
+          .admin-state { color: var(--kra-muted); font-size: 13px; }
+          .admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+          .admin-login { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+          .admin-input { border: 1px solid #bfd4ea; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+          .audit-panel { margin: 0 0 20px; background: white; border: 1px solid #dfeaf5; border-radius: 8px; padding: 16px; }
+          .audit-panel[hidden] { display: none; }
           h1 { margin: 0; font-size: 40px; letter-spacing: -0.04em; }
           .subtitle { margin-top: 10px; color: #e9f4ff; font-size: 15px; }
           .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin: 18px 0 24px; }
@@ -132,6 +356,19 @@ def dashboard_page() -> str:
             <h1>KRA Tax Anomaly Dashboard</h1>
             <div class="subtitle">Operational review of reconciliation, risk results, duplicate invoices, and case decisions.</div>
           </div>
+
+          <div class="admin-bar">
+            <div id="admin-state" class="admin-state">Checking administrator session...</div>
+            <div id="admin-actions" class="admin-actions"></div>
+          </div>
+
+          <section id="audit-panel" class="audit-panel" hidden>
+            <div class="priority-header">
+              <div class="priority-title">Administrator change history</div>
+              <button class="review-btn" id="close-audit-log" type="button" aria-label="Close administrator history">Close</button>
+            </div>
+            <div class="search-results" id="audit-log-results"></div>
+          </section>
 
           <div id="summary" class="summary"></div>
 
@@ -252,6 +489,86 @@ def dashboard_page() -> str:
         </div>
 
         <script>
+          let signedInAdmin = null;
+
+          function escapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+          }
+
+          async function refreshAdminSession() {
+            const response = await fetch('/admin/session');
+            const session = await response.json();
+            signedInAdmin = session.administrator;
+            const state = document.getElementById('admin-state');
+            const actions = document.getElementById('admin-actions');
+            if (signedInAdmin) {
+              state.textContent = `Signed in as ${signedInAdmin.username}`;
+              actions.innerHTML = '<button class="review-btn" id="show-audit-log" type="button">Change history</button><button class="review-btn" id="add-admin" type="button">Add administrator</button><button class="review-btn" id="admin-logout" type="button">Sign out</button>';
+              document.getElementById('show-audit-log').addEventListener('click', loadAuditLog);
+              document.getElementById('add-admin').addEventListener('click', addAdministrator);
+              document.getElementById('admin-logout').addEventListener('click', signOutAdmin);
+            } else {
+              state.textContent = session.setup_required ? 'No administrator exists yet. Complete first-admin setup.' : 'Administrator sign-in required to change case reviews.';
+              actions.innerHTML = session.setup_required
+                ? '<button class="action-btn" id="setup-admin" type="button">Set up first administrator</button>'
+                : '<form class="admin-login" id="admin-login"><input class="admin-input" name="username" autocomplete="username" placeholder="Username" required><input class="admin-input" name="password" type="password" autocomplete="current-password" placeholder="Password" required><button class="action-btn" type="submit">Sign in</button></form>';
+              if (session.setup_required) document.getElementById('setup-admin').addEventListener('click', setupFirstAdmin);
+              else document.getElementById('admin-login').addEventListener('submit', loginAdmin);
+            }
+          }
+
+          async function loginAdmin(event) {
+            event.preventDefault();
+            const values = Object.fromEntries(new FormData(event.currentTarget));
+            const response = await fetch('/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
+            if (!response.ok) { window.alert('Sign-in failed. Check your username and password.'); return; }
+            await refreshAdminSession();
+            loadRiskResults();
+          }
+
+          async function setupFirstAdmin() {
+            const setupToken = window.prompt('Enter the one-time administrator setup token');
+            if (setupToken === null) return;
+            const username = window.prompt('Choose an administrator username');
+            if (username === null) return;
+            const password = window.prompt('Choose a password with at least 12 characters');
+            if (password === null) return;
+            const response = await fetch('/admin/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ setup_token: setupToken, username, password }) });
+            if (!response.ok) { window.alert('Administrator setup failed. Check the setup token and password requirements.'); return; }
+            window.alert('Administrator created. Sign in with the new account.');
+            await refreshAdminSession();
+          }
+
+          async function addAdministrator() {
+            const username = window.prompt('New administrator username');
+            if (username === null) return;
+            const password = window.prompt('Temporary password (at least 12 characters)');
+            if (password === null) return;
+            const response = await fetch('/admin/administrators', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+            if (!response.ok) { window.alert('Administrator could not be added.'); return; }
+            window.alert('Administrator account created. Share the temporary password securely.');
+          }
+
+          async function signOutAdmin() {
+            await fetch('/admin/logout', { method: 'POST' });
+            document.getElementById('audit-panel').hidden = true;
+            await refreshAdminSession();
+            loadRiskResults();
+          }
+
+          async function loadAuditLog() {
+            const response = await fetch('/admin/audit-log');
+            if (!response.ok) { window.alert('Administrator history could not be loaded.'); return; }
+            const entries = await response.json();
+            const container = document.getElementById('audit-log-results');
+            container.innerHTML = entries.length ? `<table><thead><tr><th>When</th><th>Administrator</th><th>Action</th><th>Record</th><th>Before</th><th>After</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${escapeHTML(new Date(entry.changed_at).toLocaleString())}</td><td>${escapeHTML(entry.username)}</td><td>${escapeHTML(entry.action)}</td><td>${escapeHTML(`${entry.entity_type} ${entry.entity_id}`)}</td><td>${escapeHTML(JSON.stringify(entry.old_values ?? {}))}</td><td>${escapeHTML(JSON.stringify(entry.new_values ?? {}))}</td></tr>`).join('')}</tbody></table>` : '<div class="muted">No administrator changes have been recorded.</div>';
+            document.getElementById('audit-panel').hidden = false;
+          }
+
+          document.addEventListener('click', (event) => {
+            if (event.target.id === 'close-audit-log') document.getElementById('audit-panel').hidden = true;
+          });
+
           const sortState = {
             findings: { key: 'risk_score', direction: 'desc' },
             risk: { key: 'risk_score', direction: 'desc' },
@@ -459,7 +776,7 @@ def dashboard_page() -> str:
                 <td class="status ${riskClass(row.risk_level)}">${row.risk_level}</td>
                 <td>${row.reason}</td>
                 <td>${row.review_status}</td>
-                <td><button class="review-btn" data-taxpayer-id="${row.taxpayer_id}" data-status="${row.review_status}">${row.review_status === 'reviewed' ? 'Reopen' : 'Mark reviewed'}</button></td>
+                    <td><button class="review-btn" data-taxpayer-id="${row.taxpayer_id}" data-status="${row.review_status}" ${signedInAdmin ? '' : 'disabled title="Sign in as an administrator to update reviews"'}>${row.review_status === 'reviewed' ? 'Reopen' : 'Mark reviewed'}</button></td>
               </tr>
             `).join('') : '<tr><td colspan="6">No risk results</td></tr>';
 
@@ -678,6 +995,7 @@ def dashboard_page() -> str:
             document.getElementById('executive-toggle').textContent = isExecutive ? 'Detailed view' : 'Executive view';
           });
 
+          refreshAdminSession().then(loadRiskResults);
           fetch('/findings')
             .then((response) => response.json())
             .then((rows) => {
@@ -690,7 +1008,6 @@ def dashboard_page() -> str:
 
           renderGenericTable('duplicates', '/duplicate-invoices', formatDuplicate, 3);
           renderGenericTable('gaps', '/timing-gaps', formatGap, 5);
-          loadRiskResults();
         </script>
       </body>
     </html>
@@ -830,7 +1147,11 @@ def get_risk_results() -> list[dict[str, Any]]:
 
 
 @app.patch("/case-reviews/{taxpayer_id}")
-def update_case_review(taxpayer_id: int, payload: dict[str, str] = Body(...)) -> dict[str, Any]:
+def update_case_review(
+  taxpayer_id: int,
+  payload: dict[str, str] = Body(...),
+  admin: dict[str, Any] = Depends(current_admin),
+) -> dict[str, Any]:
     status = payload.get("review_status", "pending")
     if status not in {"pending", "reviewed"}:
         raise HTTPException(status_code=400, detail="review_status must be pending or reviewed")
@@ -846,6 +1167,29 @@ def update_case_review(taxpayer_id: int, payload: dict[str, str] = Body(...)) ->
         RETURNING case_id, taxpayer_id, review_status, reviewer_comments, updated_at
     """
     with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (taxpayer_id, status, comments))
-            return cur.fetchone()
+      with conn.cursor() as cur:
+        cur.execute(
+          "SELECT taxpayer_id FROM core.taxpayer WHERE taxpayer_id = %s FOR UPDATE",
+          (taxpayer_id,),
+        )
+        if cur.fetchone() is None:
+          raise HTTPException(status_code=404, detail="Taxpayer not found")
+        cur.execute(
+          "SELECT review_status, reviewer_comments FROM audit.case_review WHERE taxpayer_id = %s FOR UPDATE",
+          (taxpayer_id,),
+        )
+        previous = cur.fetchone()
+        cur.execute(query, (taxpayer_id, status, comments))
+        updated = cur.fetchone()
+        cur.execute(
+          """INSERT INTO audit.admin_change_log
+             (administrator_id, action, entity_type, entity_id, old_values, new_values)
+             VALUES (%s, 'case_review.updated', 'case_review', %s, %s::jsonb, %s::jsonb)""",
+          (
+            admin["administrator_id"],
+            str(taxpayer_id),
+            json.dumps(previous),
+            json.dumps({"review_status": updated["review_status"], "reviewer_comments": updated["reviewer_comments"]}),
+          ),
+        )
+        return updated

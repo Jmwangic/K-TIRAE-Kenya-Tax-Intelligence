@@ -10,6 +10,12 @@ services:
         fromDatabase:
           name: k-tirae-db
           property: connectionString
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_SETUP_TOKEN
+        generateValue: true
+      - key: ADMIN_COOKIE_SECURE
+        value: "true"
 
 databases:
   - name: k-tirae-db

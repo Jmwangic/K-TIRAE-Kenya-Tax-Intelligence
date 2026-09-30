@@ -10,7 +10,7 @@ The repository includes a GitHub Actions workflow that creates or updates a prog
 
 The tracked project brief is [docs/K-TIRAE-project-brief.docx](docs/K-TIRAE-project-brief.docx). Its implementation notes and change procedure are in [docs/README.md](docs/README.md).
 
-The brief-aligned database extension is applied by [db/004_brief_compliance.sql](db/004_brief_compliance.sql). It adds tax returns, sales-mismatch findings, explainable risk results, data-quality indicators, and a human case-review record. The API exposes `/taxpayers/search`, `/sales-mismatches`, `/risk-results`, and `PATCH /case-reviews/{taxpayer_id}` alongside the original reconciliation endpoints.
+The brief-aligned database extensions are applied by [db/004_brief_compliance.sql](db/004_brief_compliance.sql) and [db/005_admin_audit.sql](db/005_admin_audit.sql). They add tax returns, compliance findings, administrator accounts, and append-only change history. Case-review changes require an administrator session and record the actor and before/after values. Dashboard reads remain available without sign-in and use synthetic data only.
 
 <!-- K-TIRAE-PROGRESS:START -->
 ## Live Progress
@@ -83,7 +83,9 @@ Invoke-WebRequest http://127.0.0.1:8001/findings
 Invoke-WebRequest http://127.0.0.1:8001/duplicate-invoices
 ```
 
-The seed data is synthetic and must not be used for operational decisions. Real deployment will require access controls, data-provenance checks, human review, and documented false-positive handling.
+The seed data is synthetic and must not be used for operational decisions. For local use, set `ADMIN_SESSION_SECRET` and `ADMIN_SETUP_TOKEN` to separate random values of at least 32 characters before starting the API. Open the dashboard and choose **Set up first administrator**; the setup token is entered once and setup is permanently closed after the first account is created. Sign in, then use **Add administrator** to create named accounts for other administrators.
+
+Render generates both secrets as private environment values. Retrieve `ADMIN_SETUP_TOKEN` from the service's environment settings for first-admin setup and keep it private. The session cookie is HTTP-only, SameSite strict, and secure on Render. Audit entries cover changes made through this application; database owners with direct SQL access can still bypass application identity, so restrict database credentials and backups appropriately. The change-history table rejects ordinary update, delete, and truncate operations.
 
 ## Share a live demo
 

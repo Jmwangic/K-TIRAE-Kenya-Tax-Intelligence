@@ -1,5 +1,6 @@
 import os
 from decimal import Decimal
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -141,3 +142,40 @@ def test_duplicate_invoice_and_risk_result_are_explainable(connection):
         assert risk_level == "high"
         assert "Recorded sales exceed declared sales" in reason
         assert "Duplicate invoice numbers detected" in reason
+
+
+def test_admin_change_history_rejects_update_and_delete(connection):
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.administrator (username, password_hash) VALUES (%s, %s) RETURNING administrator_id",
+            (f"audit-{uuid4().hex}", "test-hash"),
+        )
+        administrator_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO audit.admin_change_log
+               (administrator_id, action, entity_type, entity_id)
+               VALUES (%s, 'test', 'test_record', '1') RETURNING log_id""",
+            (administrator_id,),
+        )
+        log_id = cur.fetchone()[0]
+
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+            cur.execute("UPDATE audit.admin_change_log SET action = 'tampered' WHERE log_id = %s", (log_id,))
+        connection.rollback()
+
+        with connection.cursor() as retry_cur:
+            retry_cur.execute(
+                """INSERT INTO core.administrator (username, password_hash)
+                   VALUES (%s, %s) RETURNING administrator_id""",
+                (f"audit-delete-{uuid4().hex}", "test-hash"),
+            )
+            delete_admin_id = retry_cur.fetchone()[0]
+            retry_cur.execute(
+                """INSERT INTO audit.admin_change_log
+                   (administrator_id, action, entity_type, entity_id)
+                   VALUES (%s, 'test', 'test_record', '2') RETURNING log_id""",
+                (delete_admin_id,),
+            )
+            delete_log_id = retry_cur.fetchone()[0]
+            with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+                retry_cur.execute("DELETE FROM audit.admin_change_log WHERE log_id = %s", (delete_log_id,))
