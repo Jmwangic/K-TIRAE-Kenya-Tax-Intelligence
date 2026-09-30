@@ -6,7 +6,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17
@@ -27,12 +28,13 @@ jobs:
       ADMIN_SETUP_TOKEN: ci-setup-token-value-with-at-least-32-characters
       ADMIN_COOKIE_SECURE: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements.txt
       - name: Apply database migrations
         run: for migration in db/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
-      - run: pytest -q
+      - name: Run tests with failure details
+        run: pytest -vv -ra --tb=short

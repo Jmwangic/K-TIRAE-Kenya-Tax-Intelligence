@@ -93,7 +93,7 @@ The repository includes [render.yaml](render.yaml) and [Dockerfile](Dockerfile) 
 
 1. Create or sign in to a Render account.
 2. Choose **New > Blueprint** and connect `Jmwangic/K-TIRAE-Kenya-Tax-Intelligence`.
-3. Deploy the blueprint. It creates a web service and a PostgreSQL database, applies the four SQL files at startup, and exposes the dashboard at a public Render URL.
+3. Deploy the blueprint. It creates a web service and a PostgreSQL database, applies the five SQL migration files at startup, and exposes the dashboard at a public Render URL.
 4. Share the generated HTTPS URL with reviewers.
 
 The public demo must use synthetic data only. Do not add real taxpayer records, production credentials, or unrestricted production integrations. The free Render database/service may sleep or expire, so use this as an academic review environment rather than an operational deployment.
