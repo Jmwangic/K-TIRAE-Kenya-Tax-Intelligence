@@ -1,3 +1,6 @@
+from datetime import date
+from decimal import Decimal
+import json
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
@@ -54,3 +57,63 @@ def test_mutating_and_audit_routes_require_admin_session():
 
     assert review.status_code == 401
     assert history.status_code == 401
+
+
+def test_invoice_update_requires_admin_session():
+    response = client.patch("/invoices/42", json={"taxable_amount": 150.00})
+
+    assert response.status_code == 401
+
+
+def test_invoice_update_records_old_and_new_values(monkeypatch):
+    previous = {
+        "invoice_id": 42,
+        "invoice_number": "INV-42",
+        "seller_taxpayer_id": 1,
+        "buyer_taxpayer_id": 2,
+        "invoice_date": date(2026, 6, 15),
+        "taxable_amount": Decimal("100.00"),
+        "output_vat": Decimal("16.00"),
+        "item_description": "Original item",
+    }
+    updated = {**previous, "taxable_amount": Decimal("150.00")}
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = [previous, updated]
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.cursor.return_value.__enter__.return_value = cursor
+    monkeypatch.setattr(main, "get_connection", lambda: connection)
+    main.app.dependency_overrides[main.current_admin] = lambda: {
+        "administrator_id": 7,
+        "username": "reviewer-one",
+    }
+
+    try:
+        response = client.patch("/invoices/42", json={"taxable_amount": 150.00})
+    finally:
+        main.app.dependency_overrides.pop(main.current_admin, None)
+
+    assert response.status_code == 200
+    assert Decimal(response.json()["taxable_amount"]) == Decimal("150.00")
+    audit_insert = cursor.execute.call_args_list[-1]
+    assert "invoice.updated" in audit_insert.args[0]
+    assert audit_insert.args[1][0] == 7
+    assert audit_insert.args[1][1] == "42"
+    old_values = json.loads(audit_insert.args[1][2])
+    new_values = json.loads(audit_insert.args[1][3])
+    assert Decimal(old_values["taxable_amount"]) == Decimal("100.00")
+    assert Decimal(new_values["taxable_amount"]) == Decimal("150.00")
+
+
+def test_invoice_update_rejects_uneditable_fields():
+    main.app.dependency_overrides[main.current_admin] = lambda: {
+        "administrator_id": 7,
+        "username": "reviewer-one",
+    }
+
+    try:
+        response = client.patch("/invoices/42", json={"source_hash": "tampered"})
+    finally:
+        main.app.dependency_overrides.pop(main.current_admin, None)
+
+    assert response.status_code == 400

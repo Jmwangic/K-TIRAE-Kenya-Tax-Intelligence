@@ -1,4 +1,6 @@
 import base64
+from datetime import date
+from decimal import Decimal, InvalidOperation
 import hashlib
 import hmac
 import json
@@ -267,6 +269,13 @@ def dashboard_page() -> str:
           .admin-input { border: 1px solid #bfd4ea; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
           .audit-panel { margin: 0 0 20px; background: white; border: 1px solid #dfeaf5; border-radius: 8px; padding: 16px; }
           .audit-panel[hidden] { display: none; }
+          #invoice-edit-dialog { width: min(560px, calc(100% - 32px)); border: 1px solid #bfd4ea; border-radius: 8px; padding: 20px; color: var(--kra-text); }
+          #invoice-edit-dialog::backdrop { background: rgba(10, 35, 55, 0.55); }
+          #invoice-edit-form { display: grid; gap: 12px; }
+          #invoice-edit-form h2 { margin: 0; color: var(--kra-blue-dark); }
+          #invoice-edit-form label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: var(--kra-muted); }
+          #invoice-edit-form input { width: 100%; box-sizing: border-box; border: 1px solid #bfd4ea; border-radius: 6px; padding: 8px 10px; font-size: 14px; color: var(--kra-text); }
+          .invoice-table { min-width: 980px; }
           h1 { margin: 0; font-size: 40px; letter-spacing: -0.04em; }
           .subtitle { margin-top: 10px; color: #e9f4ff; font-size: 15px; }
           .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin: 18px 0 24px; }
@@ -370,6 +379,24 @@ def dashboard_page() -> str:
             <div class="search-results" id="audit-log-results"></div>
           </section>
 
+          <dialog id="invoice-edit-dialog">
+            <form id="invoice-edit-form">
+              <h2>Edit invoice</h2>
+              <input type="hidden" name="invoice_id">
+              <label>Invoice number<input name="invoice_number" required></label>
+              <label>Seller taxpayer ID<input name="seller_taxpayer_id" type="number" min="1" required></label>
+              <label>Buyer taxpayer ID<input name="buyer_taxpayer_id" type="number" min="1" required></label>
+              <label>Invoice date<input name="invoice_date" type="date" required></label>
+              <label>Taxable amount<input name="taxable_amount" type="number" min="0" step="0.01" required></label>
+              <label>Output VAT<input name="output_vat" type="number" min="0" step="0.01" required></label>
+              <label>Item description<input name="item_description" required></label>
+              <div class="admin-actions">
+                <button class="review-btn" type="button" id="cancel-invoice-edit">Cancel</button>
+                <button class="action-btn" type="submit">Save invoice</button>
+              </div>
+            </form>
+          </dialog>
+
           <div id="summary" class="summary"></div>
 
           <div class="search-panel">
@@ -424,6 +451,13 @@ def dashboard_page() -> str:
           </div>
 
           <div class="grid">
+            <div class="card full-width">
+              <h2>eTIMS invoices</h2>
+              <table class="invoice-table">
+                <thead><tr><th>Invoice</th><th>Seller</th><th>Buyer</th><th>Date</th><th>Taxable amount</th><th>Output VAT</th><th>Description</th><th>Action</th></tr></thead>
+                <tbody id="invoices-body"></tbody>
+              </table>
+            </div>
             <div class="card full-width">
               <h2>Reconciliation findings</h2>
               <table data-table-key="findings">
@@ -523,7 +557,7 @@ def dashboard_page() -> str:
             const response = await fetch('/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
             if (!response.ok) { window.alert('Sign-in failed. Check your username and password.'); return; }
             await refreshAdminSession();
-            loadRiskResults();
+            await Promise.all([loadRiskResults(), loadInvoices()]);
           }
 
           async function setupFirstAdmin() {
@@ -553,7 +587,7 @@ def dashboard_page() -> str:
             await fetch('/admin/logout', { method: 'POST' });
             document.getElementById('audit-panel').hidden = true;
             await refreshAdminSession();
-            loadRiskResults();
+            await Promise.all([loadRiskResults(), loadInvoices()]);
           }
 
           async function loadAuditLog() {
@@ -561,9 +595,86 @@ def dashboard_page() -> str:
             if (!response.ok) { window.alert('Administrator history could not be loaded.'); return; }
             const entries = await response.json();
             const container = document.getElementById('audit-log-results');
-            container.innerHTML = entries.length ? `<table><thead><tr><th>When</th><th>Administrator</th><th>Action</th><th>Record</th><th>Before</th><th>After</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${escapeHTML(new Date(entry.changed_at).toLocaleString())}</td><td>${escapeHTML(entry.username)}</td><td>${escapeHTML(entry.action)}</td><td>${escapeHTML(`${entry.entity_type} ${entry.entity_id}`)}</td><td>${escapeHTML(JSON.stringify(entry.old_values ?? {}))}</td><td>${escapeHTML(JSON.stringify(entry.new_values ?? {}))}</td></tr>`).join('')}</tbody></table>` : '<div class="muted">No administrator changes have been recorded.</div>';
+            container.innerHTML = entries.length ? `<table><thead><tr><th>When</th><th>Administrator</th><th>Action</th><th>Record</th><th>Fields changed</th><th>Before</th><th>After</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${escapeHTML(new Date(entry.changed_at).toLocaleString())}</td><td>${escapeHTML(entry.username)}</td><td>${escapeHTML(entry.action)}</td><td>${escapeHTML(`${entry.entity_type} ${entry.entity_id}`)}</td><td>${escapeHTML(Object.keys(entry.new_values ?? {}).join(', '))}</td><td>${escapeHTML(JSON.stringify(entry.old_values ?? {}))}</td><td>${escapeHTML(JSON.stringify(entry.new_values ?? {}))}</td></tr>`).join('')}</tbody></table>` : '<div class="muted">No administrator changes have been recorded.</div>';
             document.getElementById('audit-panel').hidden = false;
           }
+
+          async function loadInvoices() {
+            const response = await fetch('/invoices');
+            if (!response.ok) return;
+            const rows = await response.json();
+            const tbody = document.getElementById('invoices-body');
+            tbody.innerHTML = rows.length ? rows.map((invoice) => `
+              <tr>
+                <td>${escapeHTML(invoice.invoice_number)}</td>
+                <td>${escapeHTML(invoice.seller_taxpayer_id)}</td>
+                <td>${escapeHTML(invoice.buyer_taxpayer_id)}</td>
+                <td>${escapeHTML(invoice.invoice_date)}</td>
+                <td>${formatMoney(invoice.taxable_amount)}</td>
+                <td>${formatMoney(invoice.output_vat)}</td>
+                <td>${escapeHTML(invoice.item_description)}</td>
+                <td><button class="review-btn invoice-edit" data-invoice='${escapeHTML(JSON.stringify(invoice))}' ${signedInAdmin ? '' : 'disabled title="Sign in as an administrator to edit invoices"'}>Edit</button></td>
+              </tr>`).join('') : '<tr><td colspan="8">No invoices found</td></tr>';
+            tbody.querySelectorAll('.invoice-edit').forEach((button) => button.addEventListener('click', () => {
+              const invoice = JSON.parse(button.dataset.invoice);
+              const form = document.getElementById('invoice-edit-form');
+              for (const [key, value] of Object.entries(invoice)) {
+                const field = form.elements.namedItem(key);
+                if (field) field.value = value;
+              }
+              document.getElementById('invoice-edit-dialog').showModal();
+            }));
+          }
+
+          async function loadFindings(initialLoad = false) {
+            const response = await fetch('/findings');
+            if (!response.ok) return;
+            const rows = (await response.json()).map((row) => ({ ...row, risk_score: computeRiskScore(row) }));
+            renderPriorityList(rows);
+            renderExecutiveSummary(rows);
+            const activeFilter = document.querySelector('.filter-btn.active')?.dataset.filter || 'anomaly';
+            renderFindingsTable(rows, sortState.findings.key, sortState.findings.direction, activeFilter);
+            if (initialLoad) {
+              attachSortHandlers('findings', rows, (data, key, direction) => renderFindingsTable(
+                data,
+                key,
+                direction,
+                document.querySelector('.filter-btn.active')?.dataset.filter || 'anomaly',
+              ));
+            }
+          }
+
+          document.getElementById('cancel-invoice-edit').addEventListener('click', () => {
+            document.getElementById('invoice-edit-dialog').close();
+          });
+
+          document.getElementById('invoice-edit-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!signedInAdmin) return;
+            const form = event.currentTarget;
+            const invoiceId = form.elements.namedItem('invoice_id').value;
+            const payload = Object.fromEntries(new FormData(form));
+            delete payload.invoice_id;
+            payload.seller_taxpayer_id = Number(payload.seller_taxpayer_id);
+            payload.buyer_taxpayer_id = Number(payload.buyer_taxpayer_id);
+            payload.taxable_amount = Number(payload.taxable_amount);
+            payload.output_vat = Number(payload.output_vat);
+            const response = await fetch(`/invoices/${invoiceId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+              const error = await response.json();
+              window.alert(`Invoice could not be saved: ${error.detail || 'Unexpected error'}`);
+              return;
+            }
+            document.getElementById('invoice-edit-dialog').close();
+            await Promise.all([loadInvoices(), loadFindings(), loadSummary(), loadRiskResults()]);
+            renderGenericTable('duplicates', '/duplicate-invoices', formatDuplicate, 3);
+            renderGenericTable('gaps', '/timing-gaps', formatGap, 5);
+            if (!document.getElementById('audit-panel').hidden) await loadAuditLog();
+          });
 
           document.addEventListener('click', (event) => {
             if (event.target.id === 'close-audit-log') document.getElementById('audit-panel').hidden = true;
@@ -995,16 +1106,10 @@ def dashboard_page() -> str:
             document.getElementById('executive-toggle').textContent = isExecutive ? 'Detailed view' : 'Executive view';
           });
 
-          refreshAdminSession().then(loadRiskResults);
-          fetch('/findings')
-            .then((response) => response.json())
-            .then((rows) => {
-              rows = rows.map((row) => ({ ...row, risk_score: computeRiskScore(row) }));
-              renderPriorityList(rows);
-              renderExecutiveSummary(rows);
-              renderFindingsTable(rows, sortState.findings.key, sortState.findings.direction, 'anomaly');
-              attachSortHandlers('findings', rows, (data, key, direction) => renderFindingsTable(data, key, direction, document.querySelector('.filter-btn.active')?.dataset.filter || 'anomaly'));
-            });
+          refreshAdminSession().then(async () => {
+            await Promise.all([loadRiskResults(), loadInvoices()]);
+          });
+          loadFindings(true);
 
           renderGenericTable('duplicates', '/duplicate-invoices', formatDuplicate, 3);
           renderGenericTable('gaps', '/timing-gaps', formatGap, 5);
@@ -1144,6 +1249,114 @@ def get_risk_results() -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(query)
             return cur.fetchall()
+
+
+@app.get("/invoices")
+def get_invoices() -> list[dict[str, Any]]:
+    query = """SELECT invoice_id, invoice_number, seller_taxpayer_id, buyer_taxpayer_id,
+                      invoice_date, taxable_amount, output_vat, item_description
+               FROM source.etims_invoice ORDER BY invoice_date DESC, invoice_id DESC LIMIT 500"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchall()
+
+
+@app.patch("/invoices/{invoice_id}")
+def update_invoice(
+    invoice_id: int,
+    payload: dict[str, Any] = Body(...),
+    admin: dict[str, Any] = Depends(current_admin),
+) -> dict[str, Any]:
+    field_validators = {
+        "invoice_number": lambda value: value.strip() if isinstance(value, str) else None,
+        "seller_taxpayer_id": lambda value: int(value) if not isinstance(value, bool) and str(value).isdigit() else None,
+        "buyer_taxpayer_id": lambda value: int(value) if not isinstance(value, bool) and str(value).isdigit() else None,
+        "invoice_date": lambda value: date.fromisoformat(value) if isinstance(value, str) else None,
+        "taxable_amount": lambda value: Decimal(str(value)),
+        "output_vat": lambda value: Decimal(str(value)),
+        "item_description": lambda value: value if isinstance(value, str) else None,
+    }
+    if not payload:
+        raise HTTPException(status_code=400, detail="Provide at least one invoice field to update")
+    unknown_fields = set(payload) - field_validators.keys()
+    if unknown_fields:
+        raise HTTPException(status_code=400, detail=f"Fields cannot be updated: {', '.join(sorted(unknown_fields))}")
+
+    updated_values: dict[str, Any] = {}
+    try:
+        for field, value in payload.items():
+            normalized = field_validators[field](value)
+            if normalized is None or (field == "invoice_number" and not normalized):
+                raise ValueError
+            if field in {"seller_taxpayer_id", "buyer_taxpayer_id"} and normalized <= 0:
+                raise ValueError
+            if field in {"taxable_amount", "output_vat"} and (not normalized.is_finite() or normalized < 0):
+                raise ValueError
+            if field in {"taxable_amount", "output_vat"} and (
+              normalized > Decimal("9999999999999999.99")
+              or normalized != normalized.quantize(Decimal("0.01"))
+            ):
+              raise ValueError
+            updated_values[field] = normalized
+    except (TypeError, ValueError, InvalidOperation):
+        raise HTTPException(status_code=400, detail="One or more invoice fields have invalid values") from None
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT invoice_id, invoice_number, seller_taxpayer_id, buyer_taxpayer_id, invoice_date, taxable_amount, output_vat, item_description FROM source.etims_invoice WHERE invoice_id = %s FOR UPDATE",
+                    (invoice_id,),
+                )
+                previous = cur.fetchone()
+                if previous is None:
+                    raise HTTPException(status_code=404, detail="Invoice not found")
+
+                taxpayer_ids = {
+                    updated_values[field]
+                    for field in ("seller_taxpayer_id", "buyer_taxpayer_id")
+                    if field in updated_values
+                }
+                if taxpayer_ids:
+                    cur.execute(
+                        "SELECT taxpayer_id FROM core.taxpayer WHERE taxpayer_id = ANY(%s)",
+                        (list(taxpayer_ids),),
+                    )
+                    found_taxpayer_ids = {row["taxpayer_id"] for row in cur.fetchall()}
+                    if found_taxpayer_ids != taxpayer_ids:
+                        raise HTTPException(status_code=400, detail="Seller or buyer taxpayer does not exist")
+
+                old_values = {
+                    field: previous[field]
+                    for field, value in updated_values.items()
+                    if previous[field] != value
+                }
+                if not old_values:
+                    return previous
+
+                changed_values = {field: updated_values[field] for field in old_values}
+                assignments = ", ".join(f"{field} = %s" for field in changed_values)
+                cur.execute(
+                    f"UPDATE source.etims_invoice SET {assignments} WHERE invoice_id = %s RETURNING invoice_id, invoice_number, seller_taxpayer_id, buyer_taxpayer_id, invoice_date, taxable_amount, output_vat, item_description",
+                    (*changed_values.values(), invoice_id),
+                )
+                updated = cur.fetchone()
+                persisted_values = {field: updated[field] for field in changed_values}
+                cur.execute(
+                    """INSERT INTO audit.admin_change_log
+                       (administrator_id, action, entity_type, entity_id, old_values, new_values)
+                       VALUES (%s, 'invoice.updated', 'invoice', %s, %s::jsonb, %s::jsonb)""",
+                    (
+                        admin["administrator_id"],
+                        str(invoice_id),
+                        json.dumps(old_values, default=str),
+                        json.dumps(persisted_values, default=str),
+                    ),
+                )
+                return updated
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail="That invoice number already exists for this seller") from None
 
 
 @app.patch("/case-reviews/{taxpayer_id}")
