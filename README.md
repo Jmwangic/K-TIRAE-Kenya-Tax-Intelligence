@@ -15,11 +15,11 @@ The brief-aligned database extensions are applied by [db/004_brief_compliance.sq
 <!-- K-TIRAE-PROGRESS:START -->
 ## Live Progress
 
-- Last automated checkpoint: 2026-10-10T20:59:28.525Z UTC
+- Last automated checkpoint: 2026-10-11T00:37:01.492Z UTC
 - Current delivery phase: Week 1 - requirements, architecture, and data contract
 - Tracked brief SHA-256: `738c2627befc4439de2f8a4dbbb5ee5b4bcd2615915c50dc186570318f970ed3`
 - Document review status: source tracked; requirement changes require human review
-- Checkpoint workflow: [view run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/38085879107)
+- Checkpoint workflow: [view run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/38099028928)
 - Detailed evidence: [weekly reports](reports/)
 
 The GitHub Actions checkpoint workflow updates this section every two hours in UTC.
