@@ -8,7 +8,7 @@
 
 The project is a working synthetic-data prototype in the stabilization and test-hardening phase. The Render dashboard is live on the replacement free PostgreSQL database. No real taxpayer data or production integration is in scope.
 
-Current repository commit: `1c76aa0` (`Harden checkpoint workflow and expand test coverage`).
+Verification baseline commit: `1c76aa0` (`Harden checkpoint workflow and expand test coverage`).
 
 ## Completed and verified
 
@@ -24,7 +24,7 @@ Current repository commit: `1c76aa0` (`Harden checkpoint workflow and expand tes
 
 ## Pending checks and risks
 
-- GitHub Actions CI for commit `1c76aa0` was still running when this report was written. Local CI-equivalent testing passed. [View the CI run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/40186455429).
+- GitHub Actions CI passed for commit `1c76aa0` (45 tests); the report-only checkpoint commit `0f94302` also passed CI. [View the code/test CI run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/40186455429).
 - The revised scheduled checkpoint workflow has not yet completed a post-change scheduled run. Confirm the next run creates/comments on the issue without adding a README commit.
 - Docker image build remains unverified until the Docker engine is available.
 - Render's replacement free database is scheduled to expire on 2026-11-24. The original database was suspended/expired and, when last inspected on 2026-10-25, Render indicated deletion in four days. Its data has not been restored. Decide whether recovery is needed before that deletion window closes.
