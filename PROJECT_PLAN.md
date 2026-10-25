@@ -40,6 +40,21 @@ The high-input-VAT check is optional and must not delay the two mandatory checks
 - The documentation clearly states that a flag is not proof of wrongdoing and that human review is required.
 - The final demonstration can be run from a clean setup using the repository instructions.
 
+## Automated test strategy
+
+Run the same checks locally and in GitHub Actions with `pytest -vv -ra --tb=short`. CI starts PostgreSQL, applies every SQL file in order, and then runs the complete test suite.
+
+| Area | Automated coverage |
+| --- | --- |
+| Administrator access | Password hashing, missing secrets, token tampering and expiry, login success and failure, setup-token validation, credential length boundaries, one-time setup, and logout cookie expiry |
+| Authorized changes | Anonymous access rejection, invoice field allowlist and numeric boundaries, case-review transitions, before/after audit values, missing review targets, and audit pagination limits |
+| Data integrity | Required identifiers, foreign keys, unique invoice numbers, nonnegative amounts, and invalid tax-return values |
+| Compliance rules | Sales mismatch threshold, duplicate invoice detection, explainable risk levels, the strict 18% input-VAT boundary, and 30/31-day timing gaps |
+| Reconciliation | eTIMS-only and customs-only records, in addition to matched and mismatched records |
+| Startup and API | Reapplying all migrations preserves existing records; health, summary, findings, risk, invoice, search, duplicate, and timing routes return the seeded contract |
+
+Keep the following as explicit follow-up checks before any operational data integration: concurrent first-admin setup, transaction rollback when an audit write fails, property-based numeric and search inputs, browser accessibility and narrow-viewport behavior, and a documented restore/export drill. These checks do not make the synthetic prototype suitable for real taxpayer data.
+
 ## Two-hour checkpoint format
 
 At each active checkpoint, record:

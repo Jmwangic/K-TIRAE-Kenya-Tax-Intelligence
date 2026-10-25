@@ -6,24 +6,11 @@ First milestone: reconcile eTIMS invoices against customs imports and withholdin
 
 The five-week K-TIRAE delivery plan, acceptance criteria, risks, and two-hour checkpoint format are in [PROJECT_PLAN.md](PROJECT_PLAN.md). Weekly reports are stored in [reports/](reports/), using [WEEKLY_REPORT_TEMPLATE.md](WEEKLY_REPORT_TEMPLATE.md).
 
-The repository includes a GitHub Actions workflow that creates or updates a progress-checkpoint issue every two hours. GitHub Actions schedules run in UTC and are reminders; the team still needs to record the actual evidence in the weekly report.
+The repository includes a GitHub Actions workflow that creates or updates a progress-checkpoint issue every two hours in UTC. The reminder does not update repository files or represent completed work. Record actual evidence, test results, blockers, and next actions in the active weekly report.
 
 The tracked project brief is [docs/K-TIRAE-project-brief.docx](docs/K-TIRAE-project-brief.docx). Its implementation notes and change procedure are in [docs/README.md](docs/README.md).
 
 The brief-aligned database extensions are applied by [db/004_brief_compliance.sql](db/004_brief_compliance.sql) and [db/005_admin_audit.sql](db/005_admin_audit.sql). They add tax returns, compliance findings, administrator accounts, and append-only change history. Case-review changes require an administrator session and record the actor and before/after values. Dashboard reads remain available without sign-in and use synthetic data only.
-
-<!-- K-TIRAE-PROGRESS:START -->
-## Live Progress
-
-- Last automated checkpoint: 2026-10-25T08:52:14.034Z UTC
-- Current delivery phase: Week 1 - requirements, architecture, and data contract
-- Tracked brief SHA-256: `738c2627befc4439de2f8a4dbbb5ee5b4bcd2615915c50dc186570318f970ed3`
-- Document review status: source tracked; requirement changes require human review
-- Checkpoint workflow: [view run](https://github.com/Jmwangic/K-TIRAE-Kenya-Tax-Intelligence/actions/runs/40178328382)
-- Detailed evidence: [weekly reports](reports/)
-
-The GitHub Actions checkpoint workflow updates this section every two hours in UTC.
-<!-- K-TIRAE-PROGRESS:END -->
 
 ## Scope
 
