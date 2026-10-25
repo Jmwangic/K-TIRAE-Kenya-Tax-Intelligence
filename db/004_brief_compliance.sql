@@ -28,11 +28,7 @@ VALUES
     (1, DATE '2026-03-01', 125000.00, 90000.00, 20000.00, 14400.00),
     (2, DATE '2026-03-01', 50000.00, 40000.00, 8000.00, 6400.00),
     (3, DATE '2026-03-01', 125000.00, 90000.00, 20000.00, 14400.00)
-ON CONFLICT (taxpayer_id, tax_period) DO UPDATE SET
-    declared_sales = EXCLUDED.declared_sales,
-    declared_purchases = EXCLUDED.declared_purchases,
-    output_vat = EXCLUDED.output_vat,
-    input_vat = EXCLUDED.input_vat;
+ON CONFLICT (taxpayer_id, tax_period) DO NOTHING;
 
 CREATE OR REPLACE VIEW audit.sales_mismatches AS
 SELECT

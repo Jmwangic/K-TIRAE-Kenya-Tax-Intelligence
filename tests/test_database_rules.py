@@ -179,3 +179,34 @@ def test_admin_change_history_rejects_update_and_delete(connection):
             delete_log_id = retry_cur.fetchone()[0]
             with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
                 retry_cur.execute("DELETE FROM audit.admin_change_log WHERE log_id = %s", (delete_log_id,))
+
+
+def test_reapplying_seed_migrations_preserves_existing_data(connection):
+    from pathlib import Path
+
+    pin = f"PRESERVE{uuid4().hex}"
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO core.taxpayer (kra_pin, legal_name) VALUES (%s, %s) RETURNING taxpayer_id",
+            (pin, "Preserved taxpayer"),
+        )
+        taxpayer_id = cur.fetchone()[0]
+        cur.execute(
+            "UPDATE source.tax_return SET declared_sales = 54321.00 "
+            "WHERE taxpayer_id = 1 AND tax_period = DATE '2026-01-01'"
+        )
+        assert cur.rowcount == 1
+
+    repository_root = Path(__file__).resolve().parents[1]
+    for migration_name in ("003_seed.sql", "004_brief_compliance.sql"):
+        migration = repository_root / "db" / migration_name
+        connection.execute(migration.read_text(encoding="utf-8"))
+
+    with connection.cursor() as cur:
+        cur.execute("SELECT EXISTS (SELECT 1 FROM core.taxpayer WHERE taxpayer_id = %s)", (taxpayer_id,))
+        assert cur.fetchone()[0]
+        cur.execute(
+            "SELECT declared_sales FROM source.tax_return "
+            "WHERE taxpayer_id = 1 AND tax_period = DATE '2026-01-01'"
+        )
+        assert cur.fetchone()[0] == Decimal("54321.00")

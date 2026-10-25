@@ -4,6 +4,14 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
+    buildFilter:
+      paths:
+        - app/**
+        - db/**
+        - scripts/deploy_entrypoint.py
+        - Dockerfile
+        - requirements.txt
+        - render.yaml
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
