@@ -76,6 +76,15 @@ def test_dashboard_renders_inline_first_admin_setup_form():
     assert "window.prompt('Enter the one-time administrator setup token')" not in response.text
 
 
+def test_dashboard_renders_case_review_dialog_without_prompt():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="case-review-form"' in response.text
+    assert 'name="reviewer_comments"' in response.text
+    assert "window.prompt('Reviewer comments'" not in response.text
+
+
 def test_invoice_update_requires_admin_session():
     response = client.patch("/invoices/42", json={"taxable_amount": 150.00})
 

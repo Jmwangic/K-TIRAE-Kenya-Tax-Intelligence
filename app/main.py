@@ -277,6 +277,13 @@ def dashboard_page() -> str:
           #invoice-edit-form h2 { margin: 0; color: var(--kra-blue-dark); }
           #invoice-edit-form label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: var(--kra-muted); }
           #invoice-edit-form input { width: 100%; box-sizing: border-box; border: 1px solid #bfd4ea; border-radius: 6px; padding: 8px 10px; font-size: 14px; color: var(--kra-text); }
+          #case-review-dialog { width: min(480px, calc(100% - 32px)); border: 1px solid #bfd4ea; border-radius: 8px; padding: 20px; color: var(--kra-text); }
+          #case-review-dialog::backdrop { background: rgba(10, 35, 55, 0.55); }
+          #case-review-form { display: grid; gap: 12px; }
+          #case-review-form h2 { margin: 0; color: var(--kra-blue-dark); }
+          #case-review-form label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: var(--kra-muted); }
+          #case-review-form textarea { width: 100%; box-sizing: border-box; border: 1px solid #bfd4ea; border-radius: 6px; padding: 8px 10px; font: inherit; }
+          .case-review-error { color: #b91c1c; font-size: 13px; }
           .invoice-table { min-width: 980px; }
           h1 { margin: 0; font-size: 40px; letter-spacing: -0.04em; }
           .subtitle { margin-top: 10px; color: #e9f4ff; font-size: 15px; }
@@ -395,6 +402,20 @@ def dashboard_page() -> str:
               <div class="admin-actions">
                 <button class="review-btn" type="button" id="cancel-invoice-edit">Cancel</button>
                 <button class="action-btn" type="submit">Save invoice</button>
+              </div>
+            </form>
+          </dialog>
+
+          <dialog id="case-review-dialog">
+            <form id="case-review-form">
+              <h2 id="case-review-title">Update case review</h2>
+              <input type="hidden" name="taxpayer_id">
+              <input type="hidden" name="review_status">
+              <label>Reviewer comments<textarea name="reviewer_comments" rows="4" maxlength="4000" placeholder="Optional notes about this review"></textarea></label>
+              <div class="case-review-error" id="case-review-error" role="alert" hidden></div>
+              <div class="admin-actions">
+                <button class="review-btn" type="button" id="cancel-case-review">Cancel</button>
+                <button class="action-btn" type="submit" id="save-case-review">Save review</button>
               </div>
             </form>
           </dialog>
@@ -529,6 +550,17 @@ def dashboard_page() -> str:
 
           function escapeHTML(value) {
             return String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+          }
+
+          function openCaseReview(taxpayerId, status, comments) {
+            const form = document.getElementById('case-review-form');
+            form.elements.namedItem('taxpayer_id').value = taxpayerId;
+            form.elements.namedItem('review_status').value = status;
+            form.elements.namedItem('reviewer_comments').value = comments || '';
+            document.getElementById('case-review-title').textContent =
+              status === 'reviewed' ? 'Mark case as reviewed' : 'Reopen case review';
+            document.getElementById('case-review-error').hidden = true;
+            document.getElementById('case-review-dialog').showModal();
           }
 
           async function refreshAdminSession() {
@@ -919,23 +951,59 @@ def dashboard_page() -> str:
               button.addEventListener('click', async () => {
                 const taxpayerId = button.dataset.taxpayerId;
                 const reviewed = button.dataset.status !== 'reviewed';
-                const comments = window.prompt('Reviewer comments', '')
-                  ?? '';
-                const response = await fetch(`/case-reviews/${taxpayerId}`, {
+                  const row = sorted.find((result) => String(result.taxpayer_id) === taxpayerId);
+                  openCaseReview(
+                    taxpayerId,
+                    reviewed ? 'reviewed' : 'pending',
+                    row?.reviewer_comments || ''
+                  );
+              });
+            });
+          }
+
+          document.getElementById('cancel-case-review').addEventListener('click', () => {
+            document.getElementById('case-review-dialog').close();
+          });
+
+          document.getElementById('case-review-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const values = Object.fromEntries(new FormData(form));
+            const error = document.getElementById('case-review-error');
+            const saveButton = document.getElementById('save-case-review');
+            saveButton.disabled = true;
+            error.hidden = true;
+            try {
+              const response = await fetch(`/case-reviews/${values.taxpayer_id}`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    review_status: reviewed ? 'reviewed' : 'pending',
-                    reviewer_comments: comments
+                    review_status: values.review_status,
+                    reviewer_comments: values.reviewer_comments
                   })
-                });
-                if (!response.ok) {
-                  window.alert('The case review could not be saved.');
-                  return;
-                }
-                loadRiskResults();
               });
-            });
+              let result;
+              try {
+                  result = await response.json();
+              } catch {
+                  error.textContent = `The service returned an unexpected response (${response.status}).`;
+                  error.hidden = false;
+                  return;
+              }
+              if (!response.ok) {
+                  error.textContent = result.detail || `The case review could not be saved (${response.status}).`;
+                  error.hidden = false;
+                  return;
+              }
+              document.getElementById('case-review-dialog').close();
+              await loadRiskResults();
+              if (!document.getElementById('audit-panel').hidden) await loadAuditLog();
+            } catch {
+              error.textContent = 'Could not reach the service. Check your connection and try again.';
+              error.hidden = false;
+            } finally {
+              saveButton.disabled = false;
+            }
           }
 
           async function loadRiskResults() {
