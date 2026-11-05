@@ -1004,7 +1004,7 @@ def dashboard_page() -> str:
             } finally {
               saveButton.disabled = false;
             }
-          }
+          });
 
           async function loadRiskResults() {
             const response = await fetch('/risk-results');
