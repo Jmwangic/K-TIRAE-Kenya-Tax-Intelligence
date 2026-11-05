@@ -266,7 +266,9 @@ def dashboard_page() -> str:
           .admin-state { color: var(--kra-muted); font-size: 13px; }
           .admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
           .admin-login { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+          .admin-setup { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; }
           .admin-input { border: 1px solid #bfd4ea; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+          .admin-form-error { flex-basis: 100%; color: #b91c1c; font-size: 13px; }
           .audit-panel { margin: 0 0 20px; background: white; border: 1px solid #dfeaf5; border-radius: 8px; padding: 16px; }
           .audit-panel[hidden] { display: none; }
           #invoice-edit-dialog { width: min(560px, calc(100% - 32px)); border: 1px solid #bfd4ea; border-radius: 8px; padding: 20px; color: var(--kra-text); }
@@ -544,9 +546,9 @@ def dashboard_page() -> str:
             } else {
               state.textContent = session.setup_required ? 'No administrator exists yet. Complete first-admin setup.' : 'Administrator sign-in required to change case reviews.';
               actions.innerHTML = session.setup_required
-                ? '<button class="action-btn" id="setup-admin" type="button">Set up first administrator</button>'
+                ? '<form class="admin-setup" id="admin-setup-form"><input class="admin-input" name="setup_token" type="password" aria-label="One-time administrator setup token" autocomplete="off" placeholder="Setup token" required><input class="admin-input" name="username" aria-label="Administrator username" autocomplete="username" maxlength="80" placeholder="Administrator username" required><input class="admin-input" name="password" type="password" aria-label="Administrator password" autocomplete="new-password" minlength="12" maxlength="1024" placeholder="Password (at least 12 characters)" required><button class="action-btn" type="submit">Create first administrator</button><div class="admin-form-error" id="admin-setup-error" role="alert" hidden></div></form>'
                 : '<form class="admin-login" id="admin-login"><input class="admin-input" name="username" autocomplete="username" placeholder="Username" required><input class="admin-input" name="password" type="password" autocomplete="current-password" placeholder="Password" required><button class="action-btn" type="submit">Sign in</button></form>';
-              if (session.setup_required) document.getElementById('setup-admin').addEventListener('click', setupFirstAdmin);
+              if (session.setup_required) document.getElementById('admin-setup-form').addEventListener('submit', setupFirstAdmin);
               else document.getElementById('admin-login').addEventListener('submit', loginAdmin);
             }
           }
@@ -560,17 +562,39 @@ def dashboard_page() -> str:
             await Promise.all([loadRiskResults(), loadInvoices()]);
           }
 
-          async function setupFirstAdmin() {
-            const setupToken = window.prompt('Enter the one-time administrator setup token');
-            if (setupToken === null) return;
-            const username = window.prompt('Choose an administrator username');
-            if (username === null) return;
-            const password = window.prompt('Choose a password with at least 12 characters');
-            if (password === null) return;
-            const response = await fetch('/admin/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ setup_token: setupToken, username, password }) });
-            if (!response.ok) { window.alert('Administrator setup failed. Check the setup token and password requirements.'); return; }
-            window.alert('Administrator created. Sign in with the new account.');
+          async function setupFirstAdmin(event) {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const error = document.getElementById('admin-setup-error');
+            const values = Object.fromEntries(new FormData(form));
+            let response;
+            try {
+              response = await fetch('/admin/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(values)
+              });
+            } catch {
+              error.textContent = 'Could not reach the service. Check your connection and try again.';
+              error.hidden = false;
+              return;
+            }
+            let result;
+            try {
+              result = await response.json();
+            } catch {
+              error.textContent = `The service returned an unexpected response (${response.status}).`;
+              error.hidden = false;
+              return;
+            }
+            if (!response.ok) {
+              error.textContent = result.detail || `Administrator setup failed (${response.status}).`;
+              error.hidden = false;
+              return;
+            }
+            form.reset();
             await refreshAdminSession();
+            document.getElementById('admin-state').textContent = 'Administrator created. Sign in with the new account.';
           }
 
           async function addAdministrator() {

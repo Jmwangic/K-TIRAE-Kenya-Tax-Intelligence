@@ -65,6 +65,17 @@ def test_mutating_and_audit_routes_require_admin_session():
     assert history.status_code == 401
 
 
+def test_dashboard_renders_inline_first_admin_setup_form():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="admin-setup-form"' in response.text
+    assert 'name="setup_token"' in response.text
+    assert 'name="username"' in response.text
+    assert 'name="password"' in response.text
+    assert "window.prompt('Enter the one-time administrator setup token')" not in response.text
+
+
 def test_invoice_update_requires_admin_session():
     response = client.patch("/invoices/42", json={"taxable_amount": 150.00})
 
