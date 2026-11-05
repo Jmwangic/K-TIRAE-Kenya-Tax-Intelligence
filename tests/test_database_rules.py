@@ -71,6 +71,19 @@ def insert_invoice(cur, number: str, seller_id: int, buyer_id: int, amount: Deci
     )
 
 
+def insert_customs_import(cur, number: str, importer_id: int, amount: Decimal) -> None:
+    cur.execute(
+        """
+        INSERT INTO source.customs_import (
+            import_entry_number, importer_taxpayer_id, declaration_date,
+            customs_value, import_vat, item_description
+        )
+        VALUES (%s, %s, DATE '2026-06-15', %s, 0.00, 'Test import')
+        """,
+        (number, importer_id, amount),
+    )
+
+
 def test_sales_mismatch_normal_and_boundary_cases_are_not_flagged(connection):
     with connection.cursor() as cur:
         buyer_id = insert_taxpayer(cur, "NORMAL")
@@ -94,6 +107,31 @@ def test_sales_mismatch_normal_and_boundary_cases_are_not_flagged(connection):
         assert cur.fetchall() == []
 
 
+def test_monthly_sales_aggregate_multiple_invoices_before_comparing_to_return(connection):
+    with connection.cursor() as cur:
+        seller_id = insert_taxpayer(cur, "AGGREGATEDSELLER")
+        buyer_id = insert_taxpayer(cur, "AGGREGATEDBUYER")
+        insert_return(cur, seller_id, Decimal("1000.00"))
+        insert_invoice(cur, "TEST-AGGREGATE-1", seller_id, buyer_id, Decimal("600.00"))
+        insert_invoice(cur, "TEST-AGGREGATE-2", seller_id, buyer_id, Decimal("610.00"))
+
+        cur.execute(
+            """
+            SELECT recorded_sales, declared_sales, variance, variance_percent
+            FROM audit.sales_mismatches
+            WHERE taxpayer_id = %s AND tax_period = DATE '2026-06-01'
+            """,
+            (seller_id,),
+        )
+
+        assert cur.fetchone() == (
+            Decimal("1210.00"),
+            Decimal("1000.00"),
+            Decimal("210.00"),
+            Decimal("21.00"),
+        )
+
+
 def test_sales_mismatch_flags_amounts_above_threshold(connection):
     with connection.cursor() as cur:
         seller_id = insert_taxpayer(cur, "MISMATCH")
@@ -111,6 +149,46 @@ def test_sales_mismatch_flags_amounts_above_threshold(connection):
         )
 
         assert cur.fetchone() == (Decimal("21.00"), Decimal("21.00"))
+
+
+def test_reconciliation_matches_exact_amount_and_applies_one_cent_tolerance(connection):
+    with connection.cursor() as cur:
+        exact_importer_id = insert_taxpayer(cur, "EXACTMATCH")
+        boundary_importer_id = insert_taxpayer(cur, "CENTBOUNDARY")
+        mismatch_importer_id = insert_taxpayer(cur, "CENTMISMATCH")
+        sellers = [
+            insert_taxpayer(cur, "MATCHSELLER1"),
+            insert_taxpayer(cur, "MATCHSELLER2"),
+            insert_taxpayer(cur, "MATCHSELLER3"),
+        ]
+
+        for index, (importer_id, seller_id, customs_value) in enumerate(
+            zip(
+                (exact_importer_id, boundary_importer_id, mismatch_importer_id),
+                sellers,
+                (Decimal("100.00"), Decimal("100.01"), Decimal("100.02")),
+                strict=True,
+            ),
+            start=1,
+        ):
+            insert_invoice(cur, f"TEST-RECONCILE-{index}", seller_id, importer_id, Decimal("100.00"))
+            insert_customs_import(cur, f"TEST-CUSTOMS-{index}", importer_id, customs_value)
+
+        cur.execute(
+            """
+            SELECT taxpayer_id, finding_type
+            FROM audit.reconciliation_findings
+            WHERE taxpayer_id IN (%s, %s, %s) AND event_date = DATE '2026-06-15'
+            ORDER BY taxpayer_id
+            """,
+            (exact_importer_id, boundary_importer_id, mismatch_importer_id),
+        )
+
+        assert cur.fetchall() == [
+            (exact_importer_id, "matched"),
+            (boundary_importer_id, "matched"),
+            (mismatch_importer_id, "amount_mismatch"),
+        ]
 
 
 def test_duplicate_invoice_and_risk_result_are_explainable(connection):
